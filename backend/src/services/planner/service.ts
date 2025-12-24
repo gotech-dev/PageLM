@@ -16,15 +16,19 @@ export class PlannerService {
         let taskData: Partial<Task>
 
         if (req.text) {
-            taskData = await parseTask(req.text)
+            // Quick heuristic parsing (no AI)
+            const heuristic = this.quickParseText(req.text)
 
-            if (req.course) taskData.course = req.course
-            if (req.title) taskData.title = req.title
-            if (req.type) taskData.type = req.type
-            if (req.notes) taskData.notes = req.notes
-            if (req.dueAt) taskData.dueAt = req.dueAt
-            if (req.estMins) taskData.estMins = req.estMins
-            if (req.priority) taskData.priority = req.priority
+            taskData = {
+                title: req.title || heuristic.title || req.text,
+                course: req.course || heuristic.course,
+                type: req.type || heuristic.type,
+                notes: req.notes || heuristic.notes,
+                dueAt: req.dueAt || heuristic.dueAt || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+                estMins: req.estMins || heuristic.estMins || 60,
+                priority: req.priority || heuristic.priority || 3,
+                steps: []
+            }
         } else {
             taskData = {
                 title: req.title || "Untitled Task",
@@ -33,14 +37,12 @@ export class PlannerService {
                 notes: req.notes,
                 dueAt: req.dueAt || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
                 estMins: req.estMins || 60,
-                priority: req.priority || 3
+                priority: req.priority || 3,
+                steps: []
             }
         }
 
-        const tempTask = { ...taskData, id: 'temp' } as Task
-        const steps = await generateSteps(tempTask)
-        taskData.steps = steps
-
+        // Create task immediately with basic data
         const task = await createTask(userId, {
             title: taskData.title || "Untitled Task",
             course: taskData.course,
@@ -50,16 +52,78 @@ export class PlannerService {
             estMins: taskData.estMins || 60,
             priority: taskData.priority || 3,
             status: 'todo',
-            steps: taskData.steps
+            steps: taskData.steps || []
         })
 
+        // Add files if provided
         if (req.files && req.files.length > 0) {
             await this.addFilesToTask(task.id, req.files)
-            const updatedTask = await getTask(task.id)
-            return updatedTask || task
+        }
+
+        // Enhance with AI in background (don't await)
+        if (req.text) {
+            this.enhanceTaskWithAI(task.id, req.text).catch(err => {
+                console.error('[PlannerService] AI enhancement failed for task', task.id, err)
+            })
         }
 
         return task
+    }
+
+    // Quick heuristic parsing without AI
+    private quickParseText(text: string): Partial<Task> {
+        const result: Partial<Task> = {
+            title: text.trim(),
+            estMins: 60,
+            priority: 3
+        }
+
+        // Extract time estimates (e.g., "2h", "30min", "1 giờ")
+        const timeMatch = text.match(/(\d+)\s*(h|hour|giờ|phút|min|minute)/i)
+        if (timeMatch) {
+            const num = parseInt(timeMatch[1])
+            const unit = timeMatch[2].toLowerCase()
+            result.estMins = (unit.startsWith('h') || unit === 'giờ') ? num * 60 : num
+        }
+
+        // Extract course/subject (simple pattern matching)
+        const courseMatch = text.match(/(toán|văn|anh|lý|hóa|sinh|sử|địa|math|english|physics|chemistry)/i)
+        if (courseMatch) {
+            result.course = courseMatch[1]
+        }
+
+        return result
+    }
+
+    // Background AI enhancement
+    private async enhanceTaskWithAI(taskId: string, originalText: string): Promise<void> {
+        try {
+            console.log('[PlannerService] Starting AI enhancement for task:', taskId)
+
+            // Parse with AI
+            const aiData = await parseTask(originalText)
+
+            // Generate steps
+            const tempTask = { ...aiData, id: taskId } as Task
+            const steps = await generateSteps(tempTask)
+
+            // Update task with AI-enhanced data
+            await updateTask(taskId, {
+                title: aiData.title,
+                course: aiData.course,
+                type: aiData.type,
+                notes: aiData.notes,
+                dueAt: aiData.dueAt,
+                estMins: aiData.estMins,
+                priority: aiData.priority,
+                steps
+            })
+
+            console.log('[PlannerService] AI enhancement completed for task:', taskId)
+        } catch (error) {
+            console.error('[PlannerService] AI enhancement error:', error)
+            // Task already created, so this is non-critical
+        }
     }
 
     async getTask(id: string): Promise<Task | null> {

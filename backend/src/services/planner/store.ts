@@ -20,6 +20,18 @@ function toMySQLDateTime(isoDate: string | null | undefined): string {
     }
 }
 
+// Valid ENUM values for type column
+const VALID_TASK_TYPES = ['homework', 'project', 'lab', 'essay', 'exam'] as const
+type ValidTaskType = typeof VALID_TASK_TYPES[number]
+
+function validateTaskType(type: string | undefined): ValidTaskType | null {
+    if (!type) return null
+    const normalized = type.toLowerCase().trim()
+    return (VALID_TASK_TYPES as readonly string[]).includes(normalized)
+        ? normalized as ValidTaskType
+        : 'homework'
+}
+
 export async function createTask(userId: string, t: Omit<Task, "id" | "createdAt" | "updatedAt">): Promise<Task> {
     const id = crypto.randomUUID()
 
@@ -28,7 +40,7 @@ export async function createTask(userId: string, t: Omit<Task, "id" | "createdAt
      (id, user_id, course, title, type, notes, due_at, est_mins, priority, status, steps, tags, rubric, source_kind, source_ref, source_page)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-            id, userId, t.course || null, t.title, t.type || null, t.notes || null,
+            id, userId, t.course || null, t.title, validateTaskType(t.type), t.notes || null,
             toMySQLDateTime(t.dueAt), t.estMins, t.priority, t.status || 'todo',
             JSON.stringify(t.steps || []), JSON.stringify(t.tags || []),
             t.rubric || null, t.source?.kind || null, t.source?.ref || null, t.source?.page || null
@@ -110,7 +122,7 @@ export async function updateTask(id: string, patch: Partial<Task>): Promise<Task
 
     if (patch.title !== undefined) { fields.push('title = ?'); values.push(patch.title) }
     if (patch.course !== undefined) { fields.push('course = ?'); values.push(patch.course) }
-    if (patch.type !== undefined) { fields.push('type = ?'); values.push(patch.type) }
+    if (patch.type !== undefined) { fields.push('type = ?'); values.push(validateTaskType(patch.type)) }
     if (patch.notes !== undefined) { fields.push('notes = ?'); values.push(patch.notes) }
     if (patch.dueAt !== undefined) { fields.push('due_at = ?'); values.push(toMySQLDateTime(patch.dueAt)) }
     if (patch.estMins !== undefined) { fields.push('est_mins = ?'); values.push(patch.estMins) }
@@ -135,7 +147,7 @@ export async function updateTask(id: string, patch: Partial<Task>): Promise<Task
         for (const slot of patch.plan.slots) {
             await query(
                 'INSERT INTO planner_slots (id, task_id, start_time, end_time, kind, done) VALUES (?, ?, ?, ?, ?, ?)',
-                [slot.id, id, slot.start, slot.end, slot.kind, slot.done || false]
+                [slot.id, id, toMySQLDateTime(slot.start), toMySQLDateTime(slot.end), slot.kind, slot.done || false]
             )
         }
     }
