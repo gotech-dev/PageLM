@@ -14,7 +14,6 @@ function sanitizeText(s: string) {
     .replace(/\u2192/g, "->")
     .replace(/\u00b2/g, "^2")
     .replace(/\u00b3/g, "^3")
-    .replace(/[^\x00-\x7F]/g, "")
 }
 
 function wrap(s: string, max = 90) {
@@ -64,7 +63,8 @@ ROLE
 You are a note generator producing Cornell-style notes.
 
 OBJECTIVE
-Generate maximum detailed study notes from the input.
+Generate maximum detailed study notes from the input. 
+Respond in the SAME language as the input text (e.g. if input is Vietnamese, response must be Vietnamese).
 
 OUTPUT
 Return ONLY a valid JSON object, no markdown, no prose.
@@ -89,16 +89,16 @@ RULES
   const r1 = await llm.invoke([{ role: "user", content: prompt + "\n\nINPUT:\n" + text }] as any)
   const raw1 = typeof r1 === "string" ? r1 : String((r1 as any)?.content ?? "")
   const parsed1 = safeParse<any>(extractFirstJsonObject(raw1) || raw1)
-  if (parsed1 && typeof parsed1 === "object") return parsed1
+  if (parsed1 && typeof parsed1 === "object" && parsed1.title) return parsed1
 
-  const retrySys = `Return only a JSON object matching the schema. No markdown. No extra text.`
+  const retrySys = `Return only a JSON object matching the schema. No markdown. No extra text. Ensure values are in the same language as the input.`
   const r2 = await llm.invoke([
     { role: "system", content: retrySys },
     { role: "user", content: prompt + "\n\nINPUT:\n" + text }
   ] as any)
   const raw2 = typeof r2 === "string" ? r2 : String((r2 as any)?.content ?? "")
   const parsed2 = safeParse<any>(extractFirstJsonObject(raw2) || raw2)
-  if (parsed2 && typeof parsed2 === "object") return parsed2
+  if (parsed2 && typeof parsed2 === "object" && parsed2.title) return parsed2
 
   const fallback = {
     title: "Notes",
@@ -110,10 +110,23 @@ RULES
   return fallback
 }
 
+// Utility to find the correct base directory for assets and storage
+function getProjectRoot() {
+  const cwd = process.cwd()
+  // if we are in backend dir, root is parent
+  if (cwd.endsWith("/backend") || cwd.endsWith("\\backend")) {
+    return path.join(cwd, "..")
+  }
+  return cwd
+}
+
 async function fillTemplateFormPDF(data: any) {
-  const dir = path.join(process.cwd(), "assets", "smartnotes")
-  const hasDir = fs.existsSync(dir)
-  if (!hasDir) return null
+  const root = getProjectRoot()
+  const dir = path.join(root, "assets", "smartnotes")
+  if (!fs.existsSync(dir)) {
+    console.error("[smartnotes] assets dir not found at:", dir)
+    return null
+  }
   const files = (await fs.promises.readdir(dir)).filter(f => f.endsWith(".pdf"))
   if (!files.length) return null
 
@@ -123,29 +136,47 @@ async function fillTemplateFormPDF(data: any) {
   pdfDoc.registerFontkit(fontkit)
 
   const form = pdfDoc.getForm()
+  let font: any = null
   try {
-    const fontPath = path.join(process.cwd(), "assets", "fonts", "Lexend.ttf")
+    const fontPath = path.join(root, "assets", "fonts", "Lexend.ttf")
     if (fs.existsSync(fontPath)) {
       const fontBytes = await fs.promises.readFile(fontPath)
-      const font = await pdfDoc.embedFont(fontBytes, { subset: true })
+      font = await pdfDoc.embedFont(fontBytes, { subset: true })
       try { form.updateFieldAppearances(font) } catch { }
+    } else {
+      console.warn("[smartnotes] font not found at:", fontPath)
     }
   } catch { }
 
-  try { form.getTextField("topic").setText(sanitizeText(data.title || "")) } catch { }
-  try { form.getTextField("notes").setText(wrap(sanitizeText(data.notes || ""))) } catch { }
-  try { form.getTextField("summary").setText(wrap(sanitizeText(data.summary || ""))) } catch { }
-  try {
-    const qna = (data.questions || [])
-      .map((q: string, i: number) => {
-        const a = data.answers && data.answers[i] ? `\nAnswer: ${data.answers[i]}` : ""
-        return `• ${q}${a}`
-      })
-      .join("\n\n")
-    form.getTextField("questions").setText(sanitizeText(qna))
-  } catch { }
+  let filledAny = false
+  const setField = (name: string, val: string) => {
+    try {
+      const field = form.getTextField(name)
+      if (field) {
+        field.setText(val)
+        if (font) field.updateAppearances(font)
+        filledAny = true
+      }
+    } catch { }
+  }
 
-  const outDir = path.join(process.cwd(), "storage", "smartnotes")
+  setField("topic", sanitizeText(data.title || ""))
+  setField("notes", wrap(sanitizeText(data.notes || ""), 80))
+  setField("summary", wrap(sanitizeText(data.summary || ""), 80))
+
+  const qna = (data.questions || [])
+    .map((q: string, i: number) => {
+      const a = data.answers && data.answers[i] ? `\nAnswer: ${data.answers[i]}` : ""
+      return `• ${q}${a}`
+    })
+    .join("\n\n")
+  setField("questions", sanitizeText(qna))
+
+  if (!filledAny) return null
+
+  try { form.flatten() } catch { }
+
+  const outDir = path.join(root, "storage", "smartnotes")
   await fs.promises.mkdir(outDir, { recursive: true })
   const safeTitle = sanitizeText(data.title || "notes").replace(/[^a-z0-9]/gi, "_").slice(0, 50)
   const ts = new Date().toISOString().replace(/[:.]/g, "-")
@@ -156,10 +187,22 @@ async function fillTemplateFormPDF(data: any) {
 }
 
 async function createSimplePDF(data: any) {
+  const root = getProjectRoot()
   const pdfDoc = await PDFDocument.create()
-  const font = await pdfDoc.embedStandardFont(StandardFonts.Helvetica)
-  const page = pdfDoc.addPage([612, 792])
+  pdfDoc.registerFontkit(fontkit)
 
+  let font = await pdfDoc.embedStandardFont(StandardFonts.Helvetica)
+  try {
+    const fontPath = path.join(root, "assets", "fonts", "Lexend.ttf")
+    if (fs.existsSync(fontPath)) {
+      const fontBytes = await fs.promises.readFile(fontPath)
+      font = await pdfDoc.embedFont(fontBytes, { subset: true })
+    }
+  } catch (e) {
+    console.error("[smartnotes] failed to embed custom font in simple pdf", e)
+  }
+
+  const page = pdfDoc.addPage([612, 792])
   const margin = 48
   const width = page.getWidth() - margin * 2
   let y = page.getHeight() - margin
@@ -201,7 +244,7 @@ async function createSimplePDF(data: any) {
     y -= 12
   }
 
-  const outDir = path.join(process.cwd(), "storage", "smartnotes")
+  const outDir = path.join(root, "storage", "smartnotes")
   await fs.promises.mkdir(outDir, { recursive: true })
   const safeTitle = sanitizeText(data.title || "notes").replace(/[^a-z0-9]/gi, "_").slice(0, 50)
   const ts = new Date().toISOString().replace(/[:.]/g, "-")

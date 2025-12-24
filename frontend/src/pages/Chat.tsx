@@ -11,6 +11,7 @@ import BagFab from "../components/Chat/BagFab";
 import BagDrawer from "../components/Chat/BagDrawer";
 import LoadingIndicator from "../components/Chat/LoadingIndicator";
 import { useCompanion } from "../components/Companion/CompanionProvider";
+import { useLanguage } from "../lib/LanguageContext";
 
 type BagItem = { id: string; kind: "flashcard" | "note"; title: string; content: string };
 
@@ -61,8 +62,10 @@ export default function Chat() {
 
   const initialChatId = search.get("chatId") || state.chatId || "";
   const initialQuestion = search.get("q") || state.q || "";
+  const initialFastMode = search.get("fastMode") === "true";
 
   const [chatId, setChatId] = useState(initialChatId);
+  const [fastMode, setFastMode] = useState(initialFastMode);
   const [messages, setMessages] = useState<ChatMessage[] | undefined>([]);
   const [cards, setCards] = useState<FlashCard[]>([]);
   const [bagOpen, setBagOpen] = useState(false);
@@ -73,6 +76,8 @@ export default function Chat() {
   const [awaitingAnswer, setAwaitingAnswer] = useState<boolean>(false);
   const [topic, setTopic] = useState<string>("");
   const { setDocument } = useCompanion();
+
+  const { t } = useLanguage();
 
   const selPopupRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -108,7 +113,9 @@ export default function Chat() {
 
   useEffect(() => {
     const cid = search.get("chatId") || state.chatId || "";
+    const fm = search.get("fastMode") === "true";
     setChatId(cid);
+    setFastMode(fm);
     if (state.answer) {
       const init = normalizePayload(state.answer);
       const seed: ChatMessage[] = [];
@@ -135,6 +142,8 @@ export default function Chat() {
             m.role === "assistant" ? { ...m, content: normalizePayload((m as any).content).md } : m
           );
           setMessages(normalized);
+          const hasAssistantMsg = normalized.some(m => m.role === "assistant");
+          if (hasAssistantMsg) setAwaitingAnswer(false);
           for (let i = normalized.length - 1; i >= 0; i--) {
             const raw = (res.messages[i] as any)?.content;
             if (normalized[i].role === "assistant") {
@@ -256,7 +265,7 @@ export default function Chat() {
     setAwaitingAnswer(true);
     setBusy(true);
     try {
-      const r = await chatJSON({ q: text, chatId: chatId || undefined });
+      const r = await chatJSON({ q: text, chatId: chatId || undefined, fastMode });
       if (r?.chatId && r.chatId !== chatId) setChatId(r.chatId);
     } finally {
       setBusy(false);
@@ -321,7 +330,7 @@ export default function Chat() {
               })}
               {(connecting || awaitingAnswer) && (
                 <div className="w-full flex justify-start">
-                  <LoadingIndicator label={connecting ? "Connecting…" : "Thinking…"} />
+                  <LoadingIndicator label={connecting ? t.chat.connecting : t.chat.thinking} />
                 </div>
               )}
               <div ref={scrollRef} />
@@ -356,7 +365,7 @@ export default function Chat() {
       <SelectionPopup
         selected={selected}
         popupRef={selPopupRef}
-        addNote={(text) => { addToBag("note", `Note: ${text.slice(0, 30)}${text.length > 30 ? "..." : ""}`, text); setSelected(null); }}
+        addNote={(text) => { addToBag("note", `${t.chat.addNote}: ${text.slice(0, 30)}${text.length > 30 ? "..." : ""}`, text); setSelected(null); }}
         askDoubt={(text) => { const v = text.trim(); if (v) sendFollowup(v); setSelected(null); }}
       />
 
@@ -366,3 +375,4 @@ export default function Chat() {
     </div>
   );
 }
+

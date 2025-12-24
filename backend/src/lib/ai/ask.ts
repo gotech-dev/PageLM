@@ -38,6 +38,18 @@ function tryParse<T = unknown>(s: string): T | null {
   try { return JSON.parse(s) as T } catch { return null }
 }
 
+export const FAST_SYSTEM_PROMPT = `
+Return ONLY a JSON-format Object with this exact structure:
+{
+  "topic": "{{string}}",
+  "answer": "{{GitHub-Flavored Markdown answer}}",
+  "flashcards": []
+}
+You are PolyPi AI, a helpful AI tutor. Provide direct, clear, and concise answers.
+For math formulas, use LaTeX notation: $...$ for inline (e.g., $x^2 + y^2 = r^2$), $$...$$ for display equations.
+`.trim()
+
+
 export const BASE_SYSTEM_PROMPT = `
 Consider [[ ]] as section start/end and {{ }} as data places to insert;
 Return ONLY a JSON-format Object with this exact structure of this JSON:
@@ -51,7 +63,7 @@ Return ONLY a JSON-format Object with this exact structure of this JSON:
 }
 
 [[IDENTITY & MISSION "START"]]
-You are PageLM, a JSON-output advanced AI educational system designed to excel in every dimension. You combine the pedagogical expertise of Richard Feynman, the systematic thinking of Barbara Oakley (Learning How to Learn), and the clarity of great technical writers. Your mission: transform any content into profound, memorable learning experiences.
+You are PolyPi AI, a JSON-output advanced AI educational system designed to excel in every dimension. You combine the pedagogical expertise of Richard Feynman, the systematic thinking of Barbara Oakley (Learning How to Learn), and the clarity of great technical writers. Your mission: transform any content into profound, memorable learning experiences.
 [[IDENTITY & MISSION "END"]]
 [[CORE PEDAGOGICAL PRINCIPLES "START"]]
 1. **ANTI-ROTE LEARNING**: Actively discourage memorization without understanding. Always ask "WHY does this work?" and "WHEN would this fail?"
@@ -86,6 +98,42 @@ You are PageLM, a JSON-output advanced AI educational system designed to excel i
    - Common cognitive traps with clear corrections
    - Memory techniques for retention
 [[ADVANCED CONTENT ARCHITECTURE "END"]]
+[[MATH & SCIENTIFIC NOTATION "START"]]
+When writing mathematical formulas, equations, or scientific expressions:
+- Use inline LaTeX: \`$...$\` for formulas within text (e.g., "Theo định lý Pythagore: \$a^2 + b^2 = c^2\$")
+- Use display LaTeX: \`$$...$$\` for standalone equations on their own line
+- Common LaTeX commands:
+  - Fractions: \$\\frac{a}{b}\$, Square root: \$\\sqrt{x}\$
+  - Powers/subscripts: \$x^2\$, \$x_1\$, \$a_{n+1}\$
+  - Integrals: \$\\int_0^1 f(x)dx\$, Sums: \$\\sum_{i=1}^n\$
+  - Greek letters: \$\\alpha\$, \$\\beta\$, \$\\pi\$, \$\\theta\$
+  - Vectors: \$\\vec{v}\$, \$\\overrightarrow{AB}\$
+  - Trigonometry: \$\\sin\$, \$\\cos\$, \$\\tan\$
+  - Limits: \$\\lim_{x \\to 0}\$, Logarithms: \$\\log\$, \$\\ln\$
+- Example display equation:
+\$\$\\int_0^\\infty e^{-x^2} dx = \\frac{\\sqrt{\\pi}}{2}\$\$
+- IMPORTANT: Always use LaTeX for any mathematical expression, even simple ones like \$x + y = z\$
+[[MATH & SCIENTIFIC NOTATION "END"]]
+
+[[MERMAID DIAGRAMS "START"]]
+When creating diagrams or flowcharts, use Mermaid syntax with \`\`\`mermaid code blocks:
+- Supported types: flowchart/graph, sequence, class, state, gantt, pie, mindmap
+- CRITICAL: Do NOT use LaTeX ($...$) inside Mermaid diagrams - Mermaid cannot parse LaTeX!
+- For math in diagrams, use Unicode symbols or plain text instead:
+  - Vectors: "vec BA" or "BA→" instead of \$\\vec{BA}\$
+  - Greek: α, β, π, θ (Unicode) instead of \$\\alpha\$
+  - Fractions: "a/b" instead of \$\\frac{a}{b}\$
+  - Powers: "x²", "x³" (Unicode superscripts) instead of \$x^2\$
+- Example flowchart:
+\`\`\`mermaid
+graph TD
+    A[Start] --> B{Decision}
+    B -->|Yes| C[Result 1]
+    B -->|No| D[Result 2]
+\`\`\`
+- Keep node labels short and readable
+[[MERMAID DIAGRAMS "END"]]
+
 [[ADVANCED FLASHCARD SYSTEM "START"]]
 **Enhanced Tag System**:
 Use sophisticated tags: cognitive_load (reduces mental burden), transfer (connects domains), metacognition (learning awareness), deep (conceptual understanding), surface (essential facts), troubleshoot (diagnostic questions), synthesis (creative combinations), anti_rote (discourages memorization), fun_factor (entertaining examples), curiosity (sparks further exploration), story_driven (narrative-based learning)
@@ -315,28 +363,40 @@ export async function askWithContext(opts: AskWithContextOptions): Promise<AskPa
 }
 
 export async function handleAsk(
-  q: string | { q: string; namespace?: string; history?: any[] },
+  q: string | { q: string; namespace?: string; history?: any[]; fastMode?: boolean },
   ns?: string,
   k = 6,
-  historyArg?: any[]
+  historyArg?: any[],
+  fastModeArg?: boolean
 ): Promise<AskPayload> {
   if (typeof q === "object" && q !== null) {
     const params = q
-    return handleAsk(params.q, params.namespace ?? ns, k, params.history ?? historyArg)
+    return handleAsk(params.q, params.namespace ?? ns, k, params.history ?? historyArg, params.fastMode ?? fastModeArg)
   }
 
   const questionRaw = typeof q === "string" ? q : String(q ?? "")
   const safeQ = normalizeTopic(questionRaw)
   const nsFinal = typeof ns === "string" && ns.trim() ? ns : "pagelm"
+  const isFast = !!fastModeArg
+  console.log(`[handleAsk] isFast: ${isFast}, safeQ: ${safeQ}`)
 
-  const rag = await execDirect({
-    agent: "researcher",
-    plan: { steps: [{ tool: "rag.search", input: { q: safeQ, ns: nsFinal, k }, timeoutMs: 8000, retries: 1 }] },
-    ctx: { ns: nsFinal }
-  })
+  let ctx = "NO_CONTEXT"
+  if (!isFast) {
+    const rag = await execDirect({
+      agent: "researcher",
+      plan: { steps: [{ tool: "rag.search", input: { q: safeQ, ns: nsFinal, k }, timeoutMs: 8000, retries: 1 }] },
+      ctx: { ns: nsFinal }
+    })
+    // execDirect returns { trace, result, threadId } - result contains the actual documents
+    const ctxDocs = Array.isArray(rag?.result) ? (rag.result as Array<{ text?: string }>) : []
+    console.log(`[handleAsk] RAG search ns="${nsFinal}", found ${ctxDocs.length} docs`)
+    ctx = ctxDocs.map(d => d?.text || "").filter(t => t.trim()).join("\n\n") || "NO_CONTEXT"
+    if (ctx !== "NO_CONTEXT") {
+      console.log(`[handleAsk] Context preview: ${ctx.slice(0, 200)}...`)
+    }
+  }
 
-  const ctxDocs = Array.isArray(rag) ? (rag as Array<{ text?: string }>) : []
-  const ctx = ctxDocs.map(d => d?.text || "").join("\n\n") || "NO_CONTEXT"
+
   const topic = guessTopic(safeQ) || "General"
 
   return askWithContext({
@@ -344,7 +404,7 @@ export async function handleAsk(
     context: ctx,
     topic,
     history: historyArg,
-    systemPrompt: BASE_SYSTEM_PROMPT,
-    cacheScope: `ans:${nsFinal}`
+    systemPrompt: isFast ? FAST_SYSTEM_PROMPT : BASE_SYSTEM_PROMPT,
+    cacheScope: isFast ? `fast:${nsFinal}` : `ans:${nsFinal}`
   })
 }

@@ -4,6 +4,7 @@ import remarkBreaks from "remark-breaks";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import rehypeHighlight from "rehype-highlight";
+import MermaidBlock from "./MermaidBlock";
 
 type Props = { md: string };
 
@@ -29,6 +30,15 @@ const components: Components = {
   th: (p) => <th className="px-3 py-2 font-semibold text-stone-100" {...p} />,
   td: (p) => <td className="px-3 py-2 align-top" {...p} />,
   code: ({ inline, className, children, ...rest }: any) => {
+    // Check if this is a mermaid code block
+    const match = /language-(\w+)/.exec(className || "");
+    const lang = match?.[1]?.toLowerCase();
+
+    if (!inline && lang === "mermaid") {
+      const code = String(children).replace(/\n$/, "");
+      return <MermaidBlock chart={code} />;
+    }
+
     if (inline) {
       return (
         <code className="px-1.5 py-0.5 rounded bg-stone-800 text-stone-100" {...rest}>

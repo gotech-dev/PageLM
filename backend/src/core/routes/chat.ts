@@ -45,18 +45,21 @@ export function chatRoutes(app: any) {
       let q = "";
       let chatId: string | undefined;
       let files: UpFile[] = [];
+      let fastMode = false;
 
       if (isMp) {
         const tMp = Date.now();
-        const { q: mq, chatId: mcid, files: mf } = await parseMultipart(req);
+        const { q: mq, chatId: mcid, files: mf, fastMode: mfm } = await parseMultipart(req);
         q = mq;
         chatId = mcid;
         files = mf || [];
+        fastMode = !!mfm;
         if (!q)
           return res.status(400).send({ error: "q required for file uploads" });
       } else {
         q = req.body?.q || "";
         chatId = req.body?.chatId;
+        fastMode = !!req.body?.fastMode;
         if (!q) return res.status(400).send({ error: "q required" });
       }
 
@@ -111,6 +114,7 @@ export function chatRoutes(app: any) {
             q,
             namespace: ns,
             history: relevantHistory,
+            fastMode,
           });
 
           await addMsg(id, {

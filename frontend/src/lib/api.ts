@@ -5,7 +5,7 @@ export type ChatMessage = { role: "user" | "assistant"; content: string; at: num
 export type ChatInfo = { id: string; title?: string; createdAt?: number };
 export type ChatsList = { ok: true; chats: ChatInfo[] };
 export type ChatDetail = { ok: true; chat: ChatInfo; messages: ChatMessage[] };
-export type ChatJSONBody = { q: string; chatId?: string };
+export type ChatJSONBody = { q: string; chatId?: string; fastMode?: boolean };
 export type ChatPhase = "upload_start" | "upload_done" | "generating";
 export type FlashCard = { q: string; a: string; tags?: string[] };
 export type Question = { id: number; question: string; options: string[]; correct: number; hint: string; explanation: string; imageHtml?: string; };
@@ -124,10 +124,11 @@ export async function chatJSON(body: ChatJSONBody) {
   });
 }
 
-export async function chatMultipart(q: string, files: File[], chatId?: string) {
+export async function chatMultipart(q: string, files: File[], chatId?: string, fastMode?: boolean) {
   const f = new FormData();
   f.append("q", q);
   if (chatId) f.append("chatId", chatId);
+  if (fastMode) f.append("fastMode", "true");
   for (const file of files) f.append("file", file, file.name);
   return req<ChatStartResponse>(`${env.backend}/chat`, {
     method: "POST",

@@ -1,9 +1,13 @@
 import { useState, useEffect } from "react"
 import { useLocation } from "react-router-dom"
 import { podcastStart, connectPodcastStream, type PodcastEvent } from "../../lib/api"
+import { useLanguage } from "../../lib/LanguageContext"
 
 export default function PodcastGenerator() {
   const location = useLocation()
+  const { t } = useLanguage()
+  const pt = t.tools.podcastTool
+
   const [topic, setTopic] = useState("")
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState("")
@@ -11,46 +15,44 @@ export default function PodcastGenerator() {
   const [audioFilename, setAudioFilename] = useState<string | null>(null)
 
   useEffect(() => {
-    // Check if we were navigated here with a podcast already started
     if (location.state?.podcastPid) {
       const { podcastPid, podcastTopic } = location.state
       setTopic(podcastTopic || "")
       setBusy(true)
-      setStatus("Connecting to podcast generation...")
+      setStatus(pt.connecting)
 
-      // Connect to the existing podcast stream
       const { close } = connectPodcastStream(podcastPid, (ev: PodcastEvent) => {
         if (ev.type === "ready") {
-          setStatus("Connected, generating...")
+          setStatus(pt.connected)
         }
         if (ev.type === "phase") {
-          setStatus(`Status: ${ev.value}`)
+          setStatus(`${ev.value}`)
         }
         if (ev.type === "script") {
-          setStatus("Script generated, creating audio...")
+          setStatus(pt.scriptGenerated)
         }
         if (ev.type === "audio") {
           const audioUrl = ev.file || ev.staticUrl || ""
           setAudioFile(audioUrl)
           setAudioFilename(ev.filename || "podcast.mp3")
-          setStatus("Ready - Audio file is ready!")
+          setStatus(pt.audioReady)
         }
         if (ev.type === "done") {
-          setStatus("Done")
+          setStatus(pt.done)
           setBusy(false)
           setTimeout(() => {
             close()
           }, 1000)
         }
         if (ev.type === "error") {
-          setStatus(`Error: ${ev.error}`)
+          setStatus(`${t.common.loading}: ${ev.error}`)
           close()
           setBusy(false)
         }
       })
 
       const timeout = setTimeout(() => {
-        setStatus("Error: Timeout - generation took too long")
+        setStatus(pt.timeout)
         setBusy(false)
         close()
       }, 120000)
@@ -60,13 +62,13 @@ export default function PodcastGenerator() {
         close()
       }
     }
-  }, [location.state])
+  }, [location.state, pt])
 
   const onGenerate = async () => {
     if (!topic.trim() || busy) return
 
     setBusy(true)
-    setStatus("Starting…")
+    setStatus(t.common.pleaseWait)
     setAudioFile(null)
     setAudioFilename(null)
 
@@ -77,23 +79,22 @@ export default function PodcastGenerator() {
 
       const { close } = connectPodcastStream(pid, (ev: PodcastEvent) => {
         if (ev.type === "ready") {
-          setStatus("Connected, generating...")
+          setStatus(pt.connected)
         }
         if (ev.type === "phase") {
-          setStatus(`Status: ${ev.value}`)
+          setStatus(`${ev.value}`)
         }
         if (ev.type === "script") {
-          setStatus("Script generated, creating audio...")
+          setStatus(pt.scriptGenerated)
         }
         if (ev.type === "audio") {
           const audioUrl = ev.file || ev.staticUrl || ""
-
           setAudioFile(audioUrl)
           setAudioFilename(ev.filename || "podcast.mp3")
-          setStatus("Ready - Audio file is ready!")
+          setStatus(pt.audioReady)
         }
         if (ev.type === "done") {
-          setStatus("Done")
+          setStatus(pt.done)
           setBusy(false)
           setTimeout(() => {
             close()
@@ -107,7 +108,7 @@ export default function PodcastGenerator() {
       })
 
       const timeout = setTimeout(() => {
-        setStatus("Error: Timeout - generation took too long")
+        setStatus(pt.timeout)
         setBusy(false)
         close()
       }, 120000)
@@ -130,12 +131,12 @@ export default function PodcastGenerator() {
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-1">
-            <div className="text-xs uppercase tracking-wide text-purple-400 font-semibold">podcast generator</div>
+            <div className="text-xs uppercase tracking-wide text-purple-400 font-semibold">{pt.label}</div>
             <div className="w-2 h-2 rounded-full bg-gradient-to-r from-purple-400 to-pink-400 animate-pulse"></div>
           </div>
-          <div className="text-white font-semibold text-xl mb-2">AI Podcast</div>
+          <div className="text-white font-semibold text-xl mb-2">{pt.title}</div>
           <div className="text-stone-300 text-sm leading-relaxed">
-            Generate engaging podcasts from any topic or notes. Perfect for learning on the go.
+            {pt.description}
           </div>
         </div>
       </div>
@@ -146,7 +147,7 @@ export default function PodcastGenerator() {
             <input
               value={topic}
               onChange={(e) => setTopic(e.target.value)}
-              placeholder="Enter topic or paste notes..."
+              placeholder={pt.placeholder}
               className="w-full px-4 py-3 pr-16 rounded-xl bg-stone-900/70 border border-zinc-700 text-white placeholder-zinc-400 focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 outline-none transition-all duration-300"
               onKeyDown={(e) => e.key === "Enter" && onGenerate()}
             />
@@ -156,24 +157,20 @@ export default function PodcastGenerator() {
             disabled={busy || !topic.trim()}
             className="px-6 py-3 rounded-xl bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium transition-all duration-300"
           >
-            {busy ? "Generating…" : "Generate"}
+            {busy ? pt.generating : pt.generate}
           </button>
         </div>
 
         {status && (
           <div className="p-4 rounded-xl bg-purple-950/40 border border-purple-800/40 text-purple-200 font-medium">
             {status}
-            <div className="text-xs mt-2 opacity-70">
-              Audio file: {audioFile ? 'Set' : 'Not set'} |
-              Busy: {busy ? 'Yes' : 'No'}
-            </div>
           </div>
         )}
 
         {audioFile && (
           <div className="space-y-3">
             <div className="p-4 rounded-xl bg-stone-900/70 border border-zinc-700">
-              <div className="text-sm text-stone-400 mb-2">Preview:</div>
+              <div className="text-sm text-stone-400 mb-2">{pt.preview}</div>
               <audio
                 controls
                 className="w-full"
@@ -188,14 +185,14 @@ export default function PodcastGenerator() {
               download={audioFilename || "podcast.mp3"}
               className="block p-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-medium text-center transition-all duration-300 shadow-lg hover:shadow-emerald-500/20"
             >
-              Download Podcast
+              {pt.download}
             </a>
           </div>
         )}
 
         {!audioFile && !busy && (
           <div className="text-xs text-stone-500 text-center p-2">
-            Click Generate to create a podcast
+            {pt.clickGenerate}
           </div>
         )}
       </div>
