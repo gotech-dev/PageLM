@@ -14,6 +14,8 @@ function fmtTime(ts: number) {
     return d.toLocaleString(undefined, { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" })
 }
 
+import MarkdownView from "../Chat/MarkdownView"
+
 export default function Planner() {
     const { t } = useLanguage()
     const [text, setText] = useState("")
@@ -338,9 +340,11 @@ export default function Planner() {
 
                                                 {/* AI Materials Display */}
                                                 {materials[tsk.id]?.summary && (
-                                                    <div className="ml-4 mt-2 text-xs text-zinc-400 bg-zinc-900/50 p-2 rounded border border-zinc-800">
-                                                        <div className="font-semibold text-violet-400 mb-1">{t.planner.aiSummary}:</div>
-                                                        {materials[tsk.id].summary.answer || materials[tsk.id].summary}
+                                                    <div className="ml-4 mt-2 text-xs text-zinc-400 bg-zinc-900/50 p-4 rounded border border-zinc-800">
+                                                        <div className="font-semibold text-violet-400 mb-2">{t.planner.aiSummary}:</div>
+                                                        <div className="prose prose-sm prose-invert max-w-none text-stone-300">
+                                                            <MarkdownView md={typeof materials[tsk.id].summary === 'string' ? materials[tsk.id].summary : (materials[tsk.id].summary.answer || '')} />
+                                                        </div>
                                                     </div>
                                                 )}
 

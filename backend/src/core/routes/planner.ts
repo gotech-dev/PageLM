@@ -195,11 +195,13 @@ export function plannerRoutes(app: any) {
         try {
             const id = req.params.id
             const request: MaterialsRequest = { type: req.body?.type || "summary" }
-            emitToAll(rooms.get(req.userId!), { type: "phase", value: "assist" })
+            // emitToAll(rooms.get(req.userId!), { type: "phase", value: "assist" })
             const materials = await plannerService.generateMaterials(id, request)
-            await emitLarge(rooms.get(req.userId!), "materials", { taskId: id, type: request.type, data: materials }, { gzip: true })
-            emitToAll(rooms.get(req.userId!), { type: "done", taskId: id })
-            res.send({ ok: true, materials })
+
+            // await emitLarge(rooms.get(req.userId!), "materials", { taskId: id, type: request.type, data: materials }, { gzip: true }) 
+            // emitToAll(rooms.get(req.userId!), { type: "done", taskId: id })
+
+            res.send({ ok: true, data: materials })
         } catch (e: unknown) {
             const error = e as Error
             res.status(500).send({ ok: false, error: error?.message || "failed" })
