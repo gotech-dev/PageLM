@@ -10,7 +10,8 @@ import {
 } from "../../utils/chat/chat";
 import { emitToAll } from "../../utils/chat/ws";
 
-const JWT_SECRET = process.env.JWT_SECRET || 'pagelm-secret-key';
+if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET environment variable is required')
+const JWT_SECRET: string = process.env.JWT_SECRET
 
 function getUserId(req: any): string {
   try {

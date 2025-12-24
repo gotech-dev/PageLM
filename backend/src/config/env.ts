@@ -1,6 +1,22 @@
 import path from 'path'
+import { fileURLToPath } from 'url'
 
-process.loadEnvFile(path.resolve(process.cwd(), '.env'))
+// Load .env from backend directory (relative to this file's location)
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+const envPath = path.resolve(__dirname, '../../.env')
+
+try {
+  process.loadEnvFile(envPath)
+  console.log('[env] Loaded environment from:', envPath)
+} catch (error) {
+  console.warn('[env] Could not load .env from', envPath, '- trying cwd fallback')
+  try {
+    process.loadEnvFile(path.resolve(process.cwd(), '.env'))
+  } catch {
+    console.warn('[env] No .env file found')
+  }
+}
 
 export const config = {
   db_mode: process.env.db_mode || 'json',

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import PlannerMindmap from "./PlannerMindmap"
 import TodayFocus from "./TodayFocus"
 import QuickAdd from "./QuickAdd"
+import Suggestions from "./Suggestions"
 import FocusTimer from "./FocusTimer"
 import CalendarView from "./CalendarView"
 import AnalyticsView from "./AnalyticsView"
@@ -120,20 +121,30 @@ export default function Planner() {
         if (!taskText.trim() && taskFiles.length === 0) return
         setLoading(true)
         try {
+            console.log('[Planner] Adding task:', { taskText, filesCount: taskFiles.length })
             if (taskFiles.length > 0) {
-                const { task } = await plannerCreateWithFiles({ text: taskText, files: taskFiles })
+                const result = await plannerCreateWithFiles({ text: taskText, files: taskFiles })
+                console.log('[Planner] Result with files:', result)
+                const { task } = result
                 if (!data) {
                     setText("")
                     setSelectedFiles([])
                 }
                 setTasks(t => [task, ...t.filter(x => x.id !== task.id)])
+                addNotification("success", `Task "${task.title}" created`)
             } else {
-                const { task } = await plannerIngest(taskText)
+                const result = await plannerIngest(taskText)
+                console.log('[Planner] Result from ingest:', result)
+                const { task } = result
                 if (!data) {
                     setText("")
                 }
                 setTasks(t => [task, ...t.filter(x => x.id !== task.id)])
+                addNotification("success", `Task "${task.title}" created`)
             }
+        } catch (error) {
+            console.error('[Planner] Error adding task:', error)
+            addNotification("error", `Failed to add task: ${(error as any)?.message || 'Unknown error'}`)
         } finally {
             setLoading(false)
         }
@@ -369,6 +380,7 @@ export default function Planner() {
                         {/* Sidebar Column */}
                         <div className="space-y-6">
                             <QuickAdd onAdd={add} loading={loading} />
+                            <Suggestions onAdd={(text) => add({ text })} />
 
                             {/* Upcoming from Week Plan */}
                             <div className="p-4 rounded-xl border border-zinc-800 bg-zinc-900/30">

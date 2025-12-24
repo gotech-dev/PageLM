@@ -2,6 +2,24 @@ import { query, queryOne } from "../../utils/database/mysql"
 import crypto from "crypto"
 import { Task, TaskFile, Slot, PlanPolicy } from "./types"
 
+// Convert ISO datetime to MySQL datetime format (with default fallback)
+function toMySQLDateTime(isoDate: string | null | undefined): string {
+    // Default to 7 days from now if no date provided
+    const defaultDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+    if (!isoDate) {
+        return defaultDate.toISOString().slice(0, 19).replace('T', ' ')
+    }
+    try {
+        const date = new Date(isoDate)
+        if (isNaN(date.getTime())) {
+            return defaultDate.toISOString().slice(0, 19).replace('T', ' ')
+        }
+        return date.toISOString().slice(0, 19).replace('T', ' ')
+    } catch {
+        return defaultDate.toISOString().slice(0, 19).replace('T', ' ')
+    }
+}
+
 export async function createTask(userId: string, t: Omit<Task, "id" | "createdAt" | "updatedAt">): Promise<Task> {
     const id = crypto.randomUUID()
 
@@ -11,7 +29,7 @@ export async function createTask(userId: string, t: Omit<Task, "id" | "createdAt
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
             id, userId, t.course || null, t.title, t.type || null, t.notes || null,
-            t.dueAt, t.estMins, t.priority, t.status || 'todo',
+            toMySQLDateTime(t.dueAt), t.estMins, t.priority, t.status || 'todo',
             JSON.stringify(t.steps || []), JSON.stringify(t.tags || []),
             t.rubric || null, t.source?.kind || null, t.source?.ref || null, t.source?.page || null
         ]
@@ -47,6 +65,15 @@ export async function getTask(id: string): Promise<Task | null> {
     // Get user policy
     const policy = await getUserPolicy(row.user_id)
 
+    // Safe JSON parse helper
+    const safeJSONParse = (str: string, fallback: any = []) => {
+        try {
+            return JSON.parse(str || JSON.stringify(fallback))
+        } catch {
+            return fallback
+        }
+    }
+
     return {
         id: row.id,
         course: row.course,
@@ -59,8 +86,8 @@ export async function getTask(id: string): Promise<Task | null> {
         status: row.status,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
-        steps: JSON.parse(row.steps || '[]'),
-        tags: JSON.parse(row.tags || '[]'),
+        steps: safeJSONParse(row.steps, []),
+        tags: safeJSONParse(row.tags, []),
         rubric: row.rubric,
         source: row.source_kind ? {
             kind: row.source_kind,
@@ -85,7 +112,7 @@ export async function updateTask(id: string, patch: Partial<Task>): Promise<Task
     if (patch.course !== undefined) { fields.push('course = ?'); values.push(patch.course) }
     if (patch.type !== undefined) { fields.push('type = ?'); values.push(patch.type) }
     if (patch.notes !== undefined) { fields.push('notes = ?'); values.push(patch.notes) }
-    if (patch.dueAt !== undefined) { fields.push('due_at = ?'); values.push(patch.dueAt) }
+    if (patch.dueAt !== undefined) { fields.push('due_at = ?'); values.push(toMySQLDateTime(patch.dueAt)) }
     if (patch.estMins !== undefined) { fields.push('est_mins = ?'); values.push(patch.estMins) }
     if (patch.priority !== undefined) { fields.push('priority = ?'); values.push(patch.priority) }
     if (patch.status !== undefined) { fields.push('status = ?'); values.push(patch.status) }

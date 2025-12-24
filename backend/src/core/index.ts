@@ -1,10 +1,10 @@
+// IMPORTANT: Import env loader FIRST to load environment variables before any other modules
+import '../config/env'
+
 import cors from 'cors';
-import path from 'path'
 import server from '../utils/server/server'
 import { registerRoutes } from './router'
 import { loggerMiddleware } from './middleware'
-
-process.loadEnvFile(path.resolve(process.cwd(), '.env'))
 
 const app = server()
 

@@ -5,6 +5,7 @@ import { CreateTaskRequest, UpdateTaskRequest, PlannerGenerateRequest, Materials
 import { emitToAll, emitLarge } from "../../utils/chat/ws"
 import { parseMultipart } from "../../lib/parser/upload"
 import crypto from "crypto"
+import { mockGetWeaknesses, mockGetRecommendations } from "../../lib/external_mock"
 
 const rooms = new Map<string, Set<any>>()
 const log = (...a: any[]) => console.log("[planner]", ...a)
@@ -51,17 +52,22 @@ export function plannerRoutes(app: any) {
     // Ingest task from text
     app.post("/tasks/ingest", authMiddleware, async (req: AuthRequest, res: any) => {
         try {
+            log("ingest: starting, userId:", req.userId)
             await ensureUserExists(req.user!)
             const userId = req.userId!
+            log("ingest: user exists, parsing text")
 
             const text = String(req.body?.text || "").trim()
             if (!text) return res.status(400).send({ ok: false, error: "text required" })
 
+            log("ingest: creating task from text:", text)
             const task = await plannerService.createTaskFromRequest(userId, { text })
+            log("ingest: task created:", task.id)
             res.send({ ok: true, task })
             emitToAll(rooms.get(userId), { type: "task.created", task })
         } catch (e: unknown) {
             const error = e as Error
+            log("ingest: ERROR:", error.message, error.stack)
             res.status(500).send({ ok: false, error: error?.message || "failed" })
         }
     })
@@ -139,6 +145,40 @@ export function plannerRoutes(app: any) {
         }
     })
 
+    // Get suggestions
+    app.get("/planner/suggestions", authMiddleware, async (req: AuthRequest, res: any) => {
+        try {
+            const [weaknesses, recommendations] = await Promise.all([
+                mockGetWeaknesses(),
+                mockGetRecommendations()
+            ])
+
+            const suggestions = [
+                ...weaknesses.map(w => ({
+                    id: `w-${w.id}`,
+                    type: 'weakness',
+                    title: `Review Weakness: ${w.topic}`,
+                    description: `Score: ${w.score}. Source: ${w.source}`,
+                    priority: w.severity === 'high' ? 'high' : 'medium',
+                    original: w
+                })),
+                ...recommendations.map(r => ({
+                    id: `r-${r.id}`,
+                    type: 'recommendation',
+                    title: r.title,
+                    description: r.description,
+                    priority: 'medium',
+                    original: r
+                }))
+            ]
+
+            res.send({ ok: true, suggestions })
+        } catch (e: unknown) {
+            const error = e as Error
+            res.status(500).send({ ok: false, error: error?.message || "failed" })
+        }
+    })
+
     // Get user stats
     app.get("/planner/stats", authMiddleware, async (req: AuthRequest, res: any) => {
         try {
@@ -183,6 +223,7 @@ export function plannerRoutes(app: any) {
 
     // List tasks
     app.get("/tasks", authMiddleware, async (req: AuthRequest, res: any) => {
+        log("GET /tasks: starting, userId:", req.userId)
         try {
             const { status, dueBefore, course } = req.query
             const filter: any = {}
@@ -190,10 +231,13 @@ export function plannerRoutes(app: any) {
             if (dueBefore) filter.dueBefore = dueBefore as string
             if (course) filter.course = course as string
 
+            log("GET /tasks: calling listTasks")
             const tasks = await plannerService.listTasks(req.userId!, filter)
+            log("GET /tasks: got tasks:", tasks.length)
             res.send({ ok: true, tasks })
         } catch (e: unknown) {
             const error = e as Error
+            log("GET /tasks: ERROR:", error.message)
             res.status(500).send({ ok: false, error: error?.message || "failed" })
         }
     })

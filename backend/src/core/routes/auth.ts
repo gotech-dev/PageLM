@@ -3,7 +3,8 @@ import { randomUUID } from 'crypto'
 import bcrypt from 'bcryptjs'
 import { query } from '../../utils/database/mysql'
 
-const JWT_SECRET = process.env.JWT_SECRET || 'pagelm-secret-key'
+if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET environment variable is required')
+const JWT_SECRET: string = process.env.JWT_SECRET
 const JWT_ISSUER = process.env.JWT_ISSUER || 'pagelm'
 
 // Helper to get user from MySQL by email and password

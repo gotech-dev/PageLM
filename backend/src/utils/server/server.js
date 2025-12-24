@@ -110,7 +110,25 @@ function server() {
         }
         return null;
     };
-    const add = (a, b, c) => { ROUTES.push({ method: a.toUpperCase(), path: b, handler: c }); };
+    // Support multiple handlers: add(method, path, handler1, handler2, ...)
+    const add = (method, path, ...handlers) => {
+        // Chain all handlers together
+        const chainedHandler = (req, res, finalNext) => {
+            console.log(`[server] chainedHandler: ${method} ${path}, handlers: ${handlers.length}`);
+            let i = 0;
+            const next = () => {
+                console.log(`[server] next(): i=${i}, total=${handlers.length}`);
+                if (i < handlers.length) {
+                    console.log(`[server] calling handler #${i + 1}`);
+                    handlers[i++](req, res, next);
+                } else if (finalNext) {
+                    finalNext();
+                }
+            };
+            next();
+        };
+        ROUTES.push({ method: method.toUpperCase(), path, handler: chainedHandler });
+    };
     const use = (a) => { WARES.push(a); };
     const listen = (a, b) => { SERVER.setTimeout(10000); SERVER.listen(a, b); };
     const all = (a, b) => { add('ALL', a, b); };
@@ -188,14 +206,14 @@ function server() {
         serverStatic,
         routes: ROUTES,
         getRoutes,
-        get: (a, b) => add('GET', a, b),
-        post: (a, b) => add('POST', a, b),
-        put: (a, b) => add('PUT', a, b),
-        delete: (a, b) => add('DELETE', a, b),
-        patch: (a, b) => add('PATCH', a, b),
-        options: (a, b) => add('OPTIONS', a, b),
-        head: (a, b) => add('HEAD', a, b),
-        all: (a, b) => add('ALL', a, b),
+        get: (path, ...handlers) => add('GET', path, ...handlers),
+        post: (path, ...handlers) => add('POST', path, ...handlers),
+        put: (path, ...handlers) => add('PUT', path, ...handlers),
+        delete: (path, ...handlers) => add('DELETE', path, ...handlers),
+        patch: (path, ...handlers) => add('PATCH', path, ...handlers),
+        options: (path, ...handlers) => add('OPTIONS', path, ...handlers),
+        head: (path, ...handlers) => add('HEAD', path, ...handlers),
+        all: (path, ...handlers) => add('ALL', path, ...handlers),
         ws: (a, b) => WS_ROUTES.push({ path: a, handler: b })
     };
 }

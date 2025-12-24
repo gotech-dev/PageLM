@@ -19,10 +19,14 @@ const config: MySQLConfig = {
     database: process.env.DB_DATABASE || process.env.MYSQL_DATABASE || 'pagelm',
     connectionLimit: 10,
     waitForConnections: true,
-    queueLimit: 0
+    queueLimit: 0,
+    connectTimeout: 10000,  // 10 seconds
+    acquireTimeout: 10000   // 10 seconds
 }
 
-export const pool = mysql.createPool(config)
+console.log('[MySQL] Config:', { host: config.host, port: config.port, user: config.user, database: config.database, hasPassword: !!config.password })
+
+export const pool = mysql.createPool(config as any)
 
 // Health check
 export async function checkConnection() {
@@ -40,8 +44,15 @@ export async function checkConnection() {
 
 // Helper functions
 export async function query<T = any>(sql: string, params?: any[]): Promise<T[]> {
-    const [rows] = await pool.execute(sql, params)
-    return rows as T[]
+    console.log('[MySQL] Query:', sql.substring(0, 100))
+    try {
+        const [rows] = await pool.execute(sql, params)
+        console.log('[MySQL] Query success, rows:', (rows as any[]).length)
+        return rows as T[]
+    } catch (error) {
+        console.error('[MySQL] Query error:', error)
+        throw error
+    }
 }
 
 export async function queryOne<T = any>(sql: string, params?: any[]): Promise<T | null> {

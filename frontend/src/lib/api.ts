@@ -12,6 +12,18 @@ function authHeaders() {
   return h;
 }
 
+// Logout: clear auth token from localStorage
+export function logout() {
+  localStorage.removeItem('auth_token');
+  localStorage.removeItem('user');
+  window.location.href = '/login';
+}
+
+// Check if user is logged in
+export function isLoggedIn(): boolean {
+  return !!localStorage.getItem('auth_token');
+}
+
 export type ChatStartResponse = { ok: true; chatId: string; stream: string };
 export type ChatMessage = { role: "user" | "assistant"; content: string; at: number };
 export type ChatInfo = { id: string; title?: string; createdAt?: number };
@@ -433,7 +445,8 @@ export async function plannerIngest(text: string) {
   return req<{ ok: boolean; task: PlannerTask }>(`${env.backend}/tasks/ingest`, {
     method: "POST",
     headers: jsonHeaders({}),
-    body: JSON.stringify({ text })
+    body: JSON.stringify({ text }),
+    timeout: 30000 // 30 seconds for AI processing
   })
 }
 
@@ -443,7 +456,10 @@ export async function plannerList(params?: { status?: string; dueBefore?: number
   if (params?.dueBefore) q.set("dueBefore", String(params.dueBefore))
   if (params?.course) q.set("course", params.course)
   const url = `${env.backend}/tasks${q.toString() ? `?${q}` : ""}`
-  return req<{ ok: boolean; tasks: PlannerTask[] }>(url, { method: "GET" })
+  return req<{ ok: boolean; tasks: PlannerTask[] }>(url, {
+    method: "GET",
+    headers: jsonHeaders({})
+  })
 }
 
 export async function plannerPlan(id: string, cram?: boolean) {
@@ -459,6 +475,21 @@ export async function plannerWeekly(cram?: boolean) {
     method: "POST",
     headers: jsonHeaders({}),
     body: JSON.stringify({ cram: !!cram })
+  })
+}
+
+export type Suggestion = {
+  id: string;
+  type: 'weakness' | 'recommendation';
+  title: string;
+  description: string;
+  priority: 'low' | 'medium' | 'high';
+};
+
+export async function plannerGetSuggestions() {
+  return req<{ ok: boolean; suggestions: Suggestion[] }>(`${env.backend}/planner/suggestions`, {
+    method: "GET",
+    headers: jsonHeaders({})
   })
 }
 

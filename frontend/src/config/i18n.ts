@@ -24,6 +24,7 @@ export const translations = {
             debate: "Tranh biện",
             cards: "Thẻ nhớ",
             untitledChat: "Trò chuyện chưa đặt tên",
+            logout: "Đăng xuất",
         },
         landing: {
             title: "Hôm nay bạn muốn học gì?",
@@ -306,6 +307,12 @@ export const translations = {
                     title: "3. Tập trung học",
                     desc: "Sử dụng đồng hồ Pomodoro và các công cụ AI để hoàn thành bài tập."
                 }
+            },
+            suggestions: {
+                title: "Gợi ý cho bạn",
+                weakness: "Cần cải thiện",
+                recommendation: "Đề xuất",
+                add: "Thêm"
             }
         }
     },
@@ -333,6 +340,7 @@ export const translations = {
             debate: "Debate",
             cards: "Cards",
             untitledChat: "Untitled Chat",
+            logout: "Logout",
         },
         landing: {
             title: "What'd you like to learn today?",
@@ -615,6 +623,12 @@ export const translations = {
                     title: "3. Focus & Learn",
                     desc: "Use the Pomodoro timer and AI tools to crush your tasks."
                 }
+            },
+            suggestions: {
+                title: "Recommended for You",
+                weakness: "Needs Work",
+                recommendation: "Suggestion",
+                add: "Add"
             }
         }
     }
