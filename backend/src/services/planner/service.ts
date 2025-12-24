@@ -12,7 +12,7 @@ export class PlannerService {
         this.policy = policy || defaultPolicy()
     }
 
-    async createTaskFromRequest(req: CreateTaskRequest): Promise<Task> {
+    async createTaskFromRequest(userId: string, req: CreateTaskRequest): Promise<Task> {
         let taskData: Partial<Task>
 
         if (req.text) {
@@ -41,7 +41,7 @@ export class PlannerService {
         const steps = await generateSteps(tempTask)
         taskData.steps = steps
 
-        const task = await createTask({
+        const task = await createTask(userId, {
             title: taskData.title || "Untitled Task",
             course: taskData.course,
             type: taskData.type,
@@ -83,8 +83,8 @@ export class PlannerService {
         return deleteTask(id)
     }
 
-    async listTasks(filter?: { status?: string; dueBefore?: string; course?: string }): Promise<Task[]> {
-        return listTasks(filter)
+    async listTasks(userId: string, filter?: { status?: string; dueBefore?: string; course?: string }): Promise<Task[]> {
+        return listTasks(userId, filter)
     }
 
     async planSingleTask(taskId: string): Promise<Task | null> {
@@ -97,10 +97,10 @@ export class PlannerService {
         return plannedTask
     }
 
-    async generateWeeklyPlan(req?: PlannerGenerateRequest): Promise<{ tasks: Task[]; plan: any }> {
+    async generateWeeklyPlan(userId: string, req?: PlannerGenerateRequest): Promise<{ tasks: Task[]; plan: any }> {
         const policy = { ...this.policy, ...req?.policy }
 
-        const tasks = await listTasks({ status: 'todo' })
+        const tasks = await listTasks(userId, { status: 'todo' })
 
         const plannedTasks = planTasks(tasks, policy)
 
@@ -113,12 +113,12 @@ export class PlannerService {
         return { tasks: plannedTasks, plan }
     }
 
-    async getTodaySessions(): Promise<{ task: Task; slots: Slot[] }[]> {
+    async getTodaySessions(userId: string): Promise<{ task: Task; slots: Slot[] }[]> {
         const today = new Date()
         today.setHours(0, 0, 0, 0)
         const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000)
 
-        const tasks = await listTasks({ status: 'todo' })
+        const tasks = await listTasks(userId, { status: 'todo' })
         const todaySessions: { task: Task; slots: Slot[] }[] = []
 
         for (const task of tasks) {
@@ -171,7 +171,9 @@ export class PlannerService {
         const missedSlots = task.plan.slots.filter(s => new Date(s.end) < now && !s.done)
         const remainingSlots = task.plan.slots.filter(s => new Date(s.start) >= now)
 
-        const allTasks = await listTasks({ status: 'todo' })
+        // Extract userId from task
+        const userId = (task as any).userId || 'default'
+        const allTasks = await listTasks(userId, { status: 'todo' })
 
         const newSlots = replan(missedSlots, remainingSlots, allTasks, task.plan.policy)
         const taskSlots = newSlots.filter(s => s.taskId === taskId)
@@ -255,8 +257,8 @@ export class PlannerService {
         return response.answer
     }
 
-    async getUpcomingDeadlines(): Promise<{ urgent: Task[]; atRisk: Task[]; upcoming: Task[] }> {
-        const tasks = await listTasks({ status: 'todo' })
+    async getUpcomingDeadlines(userId: string): Promise<{ urgent: Task[]; atRisk: Task[]; upcoming: Task[] }> {
+        const tasks = await listTasks(userId, { status: 'todo' })
         const now = new Date()
 
         const urgent: Task[] = []
@@ -281,8 +283,8 @@ export class PlannerService {
         return { urgent, atRisk, upcoming }
     }
 
-    async getUserStats(): Promise<any> {
-        const allTasks = await listTasks()
+    async getUserStats(userId: string): Promise<any> {
+        const allTasks = await listTasks(userId)
         const completedTasks = allTasks.filter(t => t.status === 'done')
 
         const totalPlannedMinutes = allTasks.reduce((sum, task) => {

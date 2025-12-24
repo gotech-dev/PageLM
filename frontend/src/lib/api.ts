@@ -1,5 +1,17 @@
 import { env } from "../config/env";
 
+// Helper to get auth headers for multipart/form-data requests
+function authHeaders() {
+  const token = localStorage.getItem('auth_token');
+  const h = new Headers();
+
+  if (token) {
+    h.set("authorization", `Bearer ${token}`);
+  }
+
+  return h;
+}
+
 export type ChatStartResponse = { ok: true; chatId: string; stream: string };
 export type ChatMessage = { role: "user" | "assistant"; content: string; at: number };
 export type ChatInfo = { id: string; title?: string; createdAt?: number };
@@ -107,6 +119,13 @@ async function req<T = unknown>(
 const jsonHeaders = (_?: unknown) => {
   const h = new Headers();
   h.set("content-type", "application/json");
+
+  // Add auth token if available
+  const token = localStorage.getItem('auth_token');
+  if (token) {
+    h.set("authorization", `Bearer ${token}`);
+  }
+
   return h;
 };
 
@@ -132,6 +151,7 @@ export async function chatMultipart(q: string, files: File[], chatId?: string, f
   for (const file of files) f.append("file", file, file.name);
   return req<ChatStartResponse>(`${env.backend}/chat`, {
     method: "POST",
+    headers: authHeaders(),
     body: f,
     timeout: Math.max(env.timeout, 300000),
   });
@@ -360,6 +380,7 @@ export async function transcribeAudio(file: File) {
 
   return req<TranscriptionResponse>(`${env.backend}/transcriber`, {
     method: 'POST',
+    headers: authHeaders(),
     body: formData,
     timeout: Math.max(env.timeout, 180000),
   });
@@ -486,6 +507,7 @@ export async function plannerCreateWithFiles(data: { text?: string; title?: stri
 
   return req<{ ok: boolean; task: PlannerTask & { files?: any[] } }>(`${env.backend}/tasks`, {
     method: "POST",
+    headers: authHeaders(),
     body: formData,
     timeout: Math.max(env.timeout, 300000),
   })
@@ -499,6 +521,7 @@ export async function plannerUploadFiles(taskId: string, files: File[]) {
 
   return req<{ ok: boolean; files: any[] }>(`${env.backend}/tasks/${encodeURIComponent(taskId)}/files`, {
     method: "POST",
+    headers: authHeaders(),
     body: formData,
     timeout: Math.max(env.timeout, 300000),
   })

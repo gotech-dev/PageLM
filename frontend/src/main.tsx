@@ -10,6 +10,7 @@ import ExamLabs from "./pages/examlab.tsx";
 import NotFound from './pages/404.tsx'
 import PlannerPage from './pages/Planner'
 import Debate from './pages/Debate'
+import Login from './pages/Login'
 import { LanguageProvider } from "./lib/LanguageContext";
 import "./index.css"
 
@@ -17,6 +18,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
   <LanguageProvider>
     <BrowserRouter>
       <Routes>
+        <Route path="/login" element={<Login />} />
         <Route path="/" element={<App />}>
           <Route path="*" element={<NotFound />} />
           <Route index element={<Landing />} />

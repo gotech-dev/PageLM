@@ -1,8 +1,8 @@
-import { ingestText } from "../../services/planner/ingest"
+import { authMiddleware, AuthRequest } from "../../middleware/auth"
+import { ensureUserExists } from "../../services/user/sync"
 import { plannerService } from "../../services/planner/service"
 import { CreateTaskRequest, UpdateTaskRequest, PlannerGenerateRequest, MaterialsRequest } from "../../services/planner/types"
-import { emitToAll } from "../../utils/chat/ws"
-import { emitLarge } from "../../utils/chat/ws"
+import { emitToAll, emitLarge } from "../../utils/chat/ws"
 import { parseMultipart } from "../../lib/parser/upload"
 import crypto from "crypto"
 
@@ -10,6 +10,7 @@ const rooms = new Map<string, Set<any>>()
 const log = (...a: any[]) => console.log("[planner]", ...a)
 
 export function plannerRoutes(app: any) {
+    // WebSocket endpoint
     app.ws("/ws/planner", (ws: any, req: any) => {
         const u = new URL(req.url, "http://localhost")
         const sid = u.searchParams.get("sid") || "default"
@@ -20,145 +21,168 @@ export function plannerRoutes(app: any) {
         ws.on("close", () => { set!.delete(ws); if (set!.size === 0) rooms.delete(sid) })
     })
 
-    app.post("/tasks", async (req: any, res: any) => {
+    // Create task
+    app.post("/tasks", authMiddleware, async (req: AuthRequest, res: any) => {
         try {
+            await ensureUserExists(req.user!)
+            const userId = req.userId!
+
             const ct = req.headers['content-type'] || ''
             const isMultipart = ct.includes("multipart/form-data")
 
             if (isMultipart) {
                 const { q: text, files } = await parseMultipart(req)
                 const request: CreateTaskRequest = { text, files }
-                const task = await plannerService.createTaskFromRequest(request)
+                const task = await plannerService.createTaskFromRequest(userId, request)
                 res.send({ ok: true, task })
-                emitToAll(rooms.get("default"), { type: "task.created", task })
+                emitToAll(rooms.get(userId), { type: "task.created", task })
             } else {
                 const request: CreateTaskRequest = req.body
-                const task = await plannerService.createTaskFromRequest(request)
+                const task = await plannerService.createTaskFromRequest(userId, request)
                 res.send({ ok: true, task })
-                emitToAll(rooms.get("default"), { type: "task.created", task })
+                emitToAll(rooms.get(userId), { type: "task.created", task })
             }
-        } catch (e: any) {
-            res.status(500).send({ ok: false, error: e?.message || "failed" })
+        } catch (e: unknown) {
+            const error = e as Error
+            res.status(500).send({ ok: false, error: error?.message || "failed" })
         }
     })
 
-    app.post("/tasks/ingest", async (req: any, res: any) => {
+    // Ingest task from text
+    app.post("/tasks/ingest", authMiddleware, async (req: AuthRequest, res: any) => {
         try {
+            await ensureUserExists(req.user!)
+            const userId = req.userId!
+
             const text = String(req.body?.text || "").trim()
             if (!text) return res.status(400).send({ ok: false, error: "text required" })
-            const task = await plannerService.createTaskFromRequest({ text })
+
+            const task = await plannerService.createTaskFromRequest(userId, { text })
             res.send({ ok: true, task })
-            emitToAll(rooms.get("default"), { type: "task.created", task })
-        } catch (e: any) {
-            res.status(500).send({ ok: false, error: e?.message || "failed" })
+            emitToAll(rooms.get(userId), { type: "task.created", task })
+        } catch (e: unknown) {
+            const error = e as Error
+            res.status(500).send({ ok: false, error: error?.message || "failed" })
         }
     })
 
-    app.get("/tasks/:id", async (req: any, res: any) => {
+    // Get task by ID
+    app.get("/tasks/:id", authMiddleware, async (req: AuthRequest, res: any) => {
         try {
             const task = await plannerService.getTask(req.params.id)
             if (!task) return res.status(404).send({ ok: false, error: "Task not found" })
             res.send({ ok: true, task })
-        } catch (e: any) {
-            res.status(500).send({ ok: false, error: e?.message || "failed" })
+        } catch (e: unknown) {
+            const error = e as Error
+            res.status(500).send({ ok: false, error: error?.message || "failed" })
         }
     })
 
-    app.post("/tasks/:id/replan", async (req: any, res: any) => {
+    // Replan task
+    app.post("/tasks/:id/replan", authMiddleware, async (req: AuthRequest, res: any) => {
         try {
             const task = await plannerService.replanTask(req.params.id)
             if (!task) return res.status(404).send({ ok: false, error: "Task not found" })
             res.send({ ok: true, task })
-            emitToAll(rooms.get("default"), { type: "plan.update", taskId: task.id, slots: task.plan?.slots || [] })
-        } catch (e: any) {
-            res.status(500).send({ ok: false, error: e?.message || "failed" })
+            emitToAll(rooms.get(req.userId!), { type: "plan.update", taskId: task.id, slots: task.plan?.slots || [] })
+        } catch (e: unknown) {
+            const error = e as Error
+            res.status(500).send({ ok: false, error: error?.message || "failed" })
         }
     })
 
-    app.post("/tasks/:id/plan", async (req: any, res: any) => {
+    // Plan single task
+    app.post("/tasks/:id/plan", authMiddleware, async (req: AuthRequest, res: any) => {
         try {
-            console.log('Planning task:', req.params.id)
             const task = await plannerService.planSingleTask(req.params.id)
-            if (!task) {
-                console.log('Task not found:', req.params.id)
-                return res.status(404).send({ ok: false, error: "Task not found" })
-            }
-
-            console.log('Task planned successfully:', task.id, 'Steps:', task.steps?.length)
+            if (!task) return res.status(404).send({ ok: false, error: "Task not found" })
             res.send({ ok: true, task })
-            emitToAll(rooms.get("default"), { type: "plan.update", taskId: task.id, slots: task.plan?.slots || [] })
-        } catch (e: any) {
-            console.error('Plan task error:', e)
-            res.status(500).send({ ok: false, error: e?.message || "failed" })
+            emitToAll(rooms.get(req.userId!), { type: "plan.update", taskId: task.id, slots: task.plan?.slots || [] })
+        } catch (e: unknown) {
+            const error = e as Error
+            res.status(500).send({ ok: false, error: error?.message || "failed" })
         }
     })
 
-    app.post("/planner/weekly", async (req: any, res: any) => {
+    // Generate weekly plan
+    app.post("/planner/weekly", authMiddleware, async (req: AuthRequest, res: any) => {
         try {
             const request: PlannerGenerateRequest = req.body
-            const result = await plannerService.generateWeeklyPlan(request)
+            const result = await plannerService.generateWeeklyPlan(req.userId!, request)
             res.send({ ok: true, ...result })
-            emitToAll(rooms.get("default"), { type: "weekly.update", plan: result.plan })
-        } catch (e: any) {
-            res.status(500).send({ ok: false, error: e?.message || "failed" })
+            emitToAll(rooms.get(req.userId!), { type: "weekly.update", plan: result.plan })
+        } catch (e: unknown) {
+            const error = e as Error
+            res.status(500).send({ ok: false, error: error?.message || "failed" })
         }
     })
 
-    app.get("/planner/today", async (req: any, res: any) => {
+    // Get today's sessions
+    app.get("/planner/today", authMiddleware, async (req: AuthRequest, res: any) => {
         try {
-            const sessions = await plannerService.getTodaySessions()
+            const sessions = await plannerService.getTodaySessions(req.userId!)
             res.send({ ok: true, sessions })
-        } catch (e: any) {
-            res.status(500).send({ ok: false, error: e?.message || "failed" })
+        } catch (e: unknown) {
+            const error = e as Error
+            res.status(500).send({ ok: false, error: error?.message || "failed" })
         }
     })
 
-    app.get("/planner/deadlines", async (req: any, res: any) => {
+    // Get upcoming deadlines
+    app.get("/planner/deadlines", authMiddleware, async (req: AuthRequest, res: any) => {
         try {
-            const deadlines = await plannerService.getUpcomingDeadlines()
+            const deadlines = await plannerService.getUpcomingDeadlines(req.userId!)
             res.send({ ok: true, ...deadlines })
-        } catch (e: any) {
-            res.status(500).send({ ok: false, error: e?.message || "failed" })
+        } catch (e: unknown) {
+            const error = e as Error
+            res.status(500).send({ ok: false, error: error?.message || "failed" })
         }
     })
 
-    app.get("/planner/stats", async (req: any, res: any) => {
+    // Get user stats
+    app.get("/planner/stats", authMiddleware, async (req: AuthRequest, res: any) => {
         try {
-            const stats = await plannerService.getUserStats()
+            const stats = await plannerService.getUserStats(req.userId!)
             res.send({ ok: true, stats })
-        } catch (e: any) {
-            res.status(500).send({ ok: false, error: e?.message || "failed" })
+        } catch (e: unknown) {
+            const error = e as Error
+            res.status(500).send({ ok: false, error: error?.message || "failed" })
         }
     })
 
-    app.post("/tasks/:id/materials", async (req: any, res: any) => {
+    // Generate materials
+    app.post("/tasks/:id/materials", authMiddleware, async (req: AuthRequest, res: any) => {
         try {
             const id = req.params.id
             const request: MaterialsRequest = { type: req.body?.type || "summary" }
-            emitToAll(rooms.get("default"), { type: "phase", value: "assist" })
+            emitToAll(rooms.get(req.userId!), { type: "phase", value: "assist" })
             const materials = await plannerService.generateMaterials(id, request)
-            await emitLarge(rooms.get("default"), "materials", { taskId: id, type: request.type, data: materials }, { gzip: true })
-            emitToAll(rooms.get("default"), { type: "done", taskId: id })
+            await emitLarge(rooms.get(req.userId!), "materials", { taskId: id, type: request.type, data: materials }, { gzip: true })
+            emitToAll(rooms.get(req.userId!), { type: "done", taskId: id })
             res.send({ ok: true, materials })
-        } catch (e: any) {
-            res.status(500).send({ ok: false, error: e?.message || "failed" })
+        } catch (e: unknown) {
+            const error = e as Error
+            res.status(500).send({ ok: false, error: error?.message || "failed" })
         }
     })
 
-    app.patch("/slots/:taskId/:slotId", async (req: any, res: any) => {
+    // Update slot
+    app.patch("/slots/:taskId/:slotId", authMiddleware, async (req: AuthRequest, res: any) => {
         try {
             const { taskId, slotId } = req.params
             const { done, skip } = req.body
             const task = await plannerService.updateSlot(taskId, slotId, { done, skip })
             if (!task) return res.status(404).send({ ok: false, error: "Task or slot not found" })
             res.send({ ok: true, task })
-            emitToAll(rooms.get("default"), { type: "slot.update", taskId, slotId, done, skip })
-        } catch (e: any) {
-            res.status(500).send({ ok: false, error: e?.message || "failed" })
+            emitToAll(rooms.get(req.userId!), { type: "slot.update", taskId, slotId, done, skip })
+        } catch (e: unknown) {
+            const error = e as Error
+            res.status(500).send({ ok: false, error: error?.message || "failed" })
         }
     })
 
-    app.get("/tasks", async (req: any, res: any) => {
+    // List tasks
+    app.get("/tasks", authMiddleware, async (req: AuthRequest, res: any) => {
         try {
             const { status, dueBefore, course } = req.query
             const filter: any = {}
@@ -166,37 +190,43 @@ export function plannerRoutes(app: any) {
             if (dueBefore) filter.dueBefore = dueBefore as string
             if (course) filter.course = course as string
 
-            const tasks = await plannerService.listTasks(filter)
+            const tasks = await plannerService.listTasks(req.userId!, filter)
             res.send({ ok: true, tasks })
-        } catch (e: any) {
-            res.status(500).send({ ok: false, error: e?.message || "failed" })
+        } catch (e: unknown) {
+            const error = e as Error
+            res.status(500).send({ ok: false, error: error?.message || "failed" })
         }
     })
 
-    app.patch("/tasks/:id", async (req: any, res: any) => {
+    // Update task
+    app.patch("/tasks/:id", authMiddleware, async (req: AuthRequest, res: any) => {
         try {
             const updates: UpdateTaskRequest = req.body
             const task = await plannerService.updateTask(req.params.id, updates)
             if (!task) return res.status(404).send({ ok: false, error: "Task not found" })
             res.send({ ok: true, task })
-            emitToAll(rooms.get("default"), { type: "task.updated", task })
-        } catch (e: any) {
-            res.status(500).send({ ok: false, error: e?.message || "failed" })
+            emitToAll(rooms.get(req.userId!), { type: "task.updated", task })
+        } catch (e: unknown) {
+            const error = e as Error
+            res.status(500).send({ ok: false, error: error?.message || "failed" })
         }
     })
 
-    app.delete("/tasks/:id", async (req: any, res: any) => {
+    // Delete task
+    app.delete("/tasks/:id", authMiddleware, async (req: AuthRequest, res: any) => {
         try {
             const success = await plannerService.deleteTask(req.params.id)
             if (!success) return res.status(404).send({ ok: false, error: "Task not found" })
             res.send({ ok: true })
-            emitToAll(rooms.get("default"), { type: "task.deleted", taskId: req.params.id })
-        } catch (e: any) {
-            res.status(500).send({ ok: false, error: e?.message || "failed" })
+            emitToAll(rooms.get(req.userId!), { type: "task.deleted", taskId: req.params.id })
+        } catch (e: unknown) {
+            const error = e as Error
+            res.status(500).send({ ok: false, error: error?.message || "failed" })
         }
     })
 
-    app.post("/tasks/:id/files", async (req: any, res: any) => {
+    // Upload files to task
+    app.post("/tasks/:id/files", authMiddleware, async (req: AuthRequest, res: any) => {
         try {
             const ct = req.headers['content-type'] || ''
             if (!ct.includes("multipart/form-data")) {
@@ -211,24 +241,28 @@ export function plannerRoutes(app: any) {
             const taskId = req.params.id
             const uploadedFiles = await plannerService.addFilesToTask(taskId, files)
             res.send({ ok: true, files: uploadedFiles })
-            emitToAll(rooms.get("default"), { type: "task.files.added", taskId, files: uploadedFiles })
-        } catch (e: any) {
-            res.status(500).send({ ok: false, error: e?.message || "failed" })
+            emitToAll(rooms.get(req.userId!), { type: "task.files.added", taskId, files: uploadedFiles })
+        } catch (e: unknown) {
+            const error = e as Error
+            res.status(500).send({ ok: false, error: error?.message || "failed" })
         }
     })
 
-    app.delete("/tasks/:id/files/:fileId", async (req: any, res: any) => {
+    // Delete file from task
+    app.delete("/tasks/:id/files/:fileId", authMiddleware, async (req: AuthRequest, res: any) => {
         try {
             const success = await plannerService.removeFileFromTask(req.params.id, req.params.fileId)
             if (!success) return res.status(404).send({ ok: false, error: "File not found" })
             res.send({ ok: true })
-            emitToAll(rooms.get("default"), { type: "task.file.removed", taskId: req.params.id, fileId: req.params.fileId })
-        } catch (e: any) {
-            res.status(500).send({ ok: false, error: e?.message || "failed" })
+            emitToAll(rooms.get(req.userId!), { type: "task.file.removed", taskId: req.params.id, fileId: req.params.fileId })
+        } catch (e: unknown) {
+            const error = e as Error
+            res.status(500).send({ ok: false, error: error?.message || "failed" })
         }
     })
 
-    app.post("/sessions/start", async (req: any, res: any) => {
+    // Start session
+    app.post("/sessions/start", authMiddleware, async (req: AuthRequest, res: any) => {
         try {
             const { taskId, slotId } = req.body
             if (!taskId) return res.status(400).send({ ok: false, error: "taskId required" })
@@ -242,13 +276,15 @@ export function plannerRoutes(app: any) {
             }
 
             res.send({ ok: true, session })
-            emitToAll(rooms.get("default"), { type: "session.started", session })
-        } catch (e: any) {
-            res.status(500).send({ ok: false, error: e?.message || "failed" })
+            emitToAll(rooms.get(req.userId!), { type: "session.started", session })
+        } catch (e: unknown) {
+            const error = e as Error
+            res.status(500).send({ ok: false, error: error?.message || "failed" })
         }
     })
 
-    app.post("/sessions/:id/stop", async (req: any, res: any) => {
+    // Stop session
+    app.post("/sessions/:id/stop", authMiddleware, async (req: AuthRequest, res: any) => {
         try {
             const sessionId = req.params.id
             const { minutesWorked, completed } = req.body
@@ -262,13 +298,15 @@ export function plannerRoutes(app: any) {
             }
 
             res.send({ ok: true, session })
-            emitToAll(rooms.get("default"), { type: "session.ended", session })
-        } catch (e: any) {
-            res.status(500).send({ ok: false, error: e?.message || "failed" })
+            emitToAll(rooms.get(req.userId!), { type: "session.ended", session })
+        } catch (e: unknown) {
+            const error = e as Error
+            res.status(500).send({ ok: false, error: error?.message || "failed" })
         }
     })
 
-    app.post("/reminders/schedule", async (req: any, res: any) => {
+    // Schedule reminder
+    app.post("/reminders/schedule", authMiddleware, async (req: AuthRequest, res: any) => {
         try {
             const { text, scheduledFor, taskId } = req.body
             if (!text || !scheduledFor) {
@@ -288,7 +326,7 @@ export function plannerRoutes(app: any) {
             const delayMs = new Date(scheduledFor).getTime() - Date.now()
             if (delayMs > 0) {
                 setTimeout(() => {
-                    emitToAll(rooms.get("default"), {
+                    emitToAll(rooms.get(req.userId!), {
                         type: "reminder",
                         id: reminder.id,
                         text: reminder.text,
@@ -297,71 +335,15 @@ export function plannerRoutes(app: any) {
                     })
                 }, delayMs)
             }
-        } catch (e: any) {
-            res.status(500).send({ ok: false, error: e?.message || "failed" })
+        } catch (e: unknown) {
+            const error = e as Error
+            res.status(500).send({ ok: false, error: error?.message || "failed" })
         }
     })
 
-    app.post("/reminders/test", async (_req: any, res: any) => {
-        emitToAll(rooms.get("default"), { type: "reminder", text: "Test reminder", at: Date.now() + 60000 })
+    // Test reminder
+    app.post("/reminders/test", authMiddleware, async (req: AuthRequest, res: any) => {
+        emitToAll(rooms.get(req.userId!), { type: "reminder", text: "Test reminder", at: Date.now() + 60000 })
         res.send({ ok: true })
     })
 }
-
-let lastDigest = ""
-let lastBreakReminder = 0
-
-setInterval(async () => {
-    try {
-        const now = new Date()
-        const hh = now.getHours()
-        const mm = now.getMinutes()
-        const today = now.toISOString().slice(0, 10)
-
-        if (hh === 8 && mm < 5 && lastDigest !== today) {
-            lastDigest = today
-            const tomorrow = new Date(today + "T23:59:59Z").toISOString()
-            const tasks = await plannerService.listTasks({ dueBefore: tomorrow })
-            const dueToday = tasks.filter(t => new Date(t.dueAt).toDateString() === new Date(today).toDateString())
-            const todaySessions = await plannerService.getTodaySessions()
-
-            emitToAll(rooms.get("default"), {
-                type: "daily.digest",
-                date: today,
-                due: dueToday.map(t => ({ id: t.id, title: t.title, dueAt: t.dueAt })),
-                sessions: todaySessions.length,
-                message: `Good morning! You have ${dueToday.length} tasks due today and ${todaySessions.length} sessions planned.`
-            })
-        }
-
-        if (hh >= 9 && hh <= 18 && mm < 5) {
-            const currentHour = now.getTime()
-            if (currentHour - lastBreakReminder > 2 * 60 * 60 * 1000) {
-                lastBreakReminder = currentHour
-                emitToAll(rooms.get("default"), {
-                    type: "break.reminder",
-                    text: "Time for a break! Consider taking 5-10 minutes to rest your eyes and stretch.",
-                    at: now.toISOString()
-                })
-            }
-        }
-
-        // Evening review at 8 PM
-        if (hh === 20 && mm < 5) {
-            const stats = await plannerService.getUserStats()
-            const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
-            const tomorrowTasks = await plannerService.listTasks({
-                status: 'todo',
-                dueBefore: new Date(tomorrow + "T23:59:59Z").toISOString()
-            })
-
-            emitToAll(rooms.get("default"), {
-                type: "evening.review",
-                date: today,
-                stats,
-                tomorrowTasks: tomorrowTasks.slice(0, 3).map(t => ({ id: t.id, title: t.title })),
-                message: `Today's recap: ${stats.completedTasks} tasks completed. Tomorrow you have ${tomorrowTasks.length} tasks planned.`
-            })
-        }
-    } catch { }
-}, 60000)

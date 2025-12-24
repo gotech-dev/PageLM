@@ -8,8 +8,10 @@ import { transcriberRoutes } from "./routes/transcriber";
 import { plannerRoutes } from "./routes/planner";
 import { debateRoutes } from "./routes/debate";
 import { companionRoutes } from "./routes/companion";
+import { authRoutes } from "./routes/auth";
 
 export function registerRoutes(app: any) {
+  authRoutes(app);
   chatRoutes(app);
   quizRoutes(app);
   examRoutes(app);

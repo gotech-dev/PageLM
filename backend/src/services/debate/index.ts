@@ -1,5 +1,5 @@
 import llm from "../../utils/llm/llm";
-import db from "../../utils/database/keyv";
+import * as store from "./store";
 
 export type DebateMessage = {
     role: "user" | "assistant";
@@ -28,12 +28,6 @@ export type DebateAnalysis = {
     overallAssessment: string;
 };
 
-const DEBATE_LIST_KEY = "debate:sessions";
-
-async function getDebatesList(): Promise<{ id: string }[]> {
-    return (await db.get(DEBATE_LIST_KEY)) || [];
-}
-
 function toText(out: any): string {
     if (!out) return "";
     if (typeof out === "string") return out;
@@ -47,7 +41,7 @@ function toText(out: any): string {
     return String(out ?? "");
 }
 
-export async function createDebateSession(topic: string, position: "for" | "against"): Promise<DebateSession> {
+export async function createDebateSession(userId: string, topic: string, position: "for" | "against"): Promise<DebateSession> {
     const id = `debate_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
     const session: DebateSession = {
         id,
@@ -57,17 +51,12 @@ export async function createDebateSession(topic: string, position: "for" | "agai
         createdAt: Date.now(),
     };
 
-    const list = await getDebatesList();
-    list.push({ id });
-    await db.set(DEBATE_LIST_KEY, list);
-
-    await db.set(`debate:session:${id}`, session);
+    await store.createSession(userId, session);
     return session;
 }
 
 export async function getDebateSession(id: string): Promise<DebateSession | null> {
-    const session = await db.get(`debate:session:${id}`);
-    return session || null;
+    return store.getSession(id);
 }
 
 export async function addDebateMessage(
@@ -75,15 +64,11 @@ export async function addDebateMessage(
     role: "user" | "assistant",
     content: string
 ): Promise<void> {
-    const session = await getDebateSession(sessionId);
-    if (session) {
-        session.messages.push({
-            role,
-            content,
-            timestamp: Date.now(),
-        });
-        await db.set(`debate:session:${sessionId}`, session);
-    }
+    await store.addMessage(sessionId, {
+        role,
+        content,
+        timestamp: Date.now()
+    });
 }
 
 export async function* streamDebateResponse(
@@ -139,9 +124,10 @@ Remember: You are in a debate, so be persuasive and competitive while remaining 
 
     if (fullResponse.startsWith("[CONCEDE]")) {
         const concedeReason = fullResponse.replace("[CONCEDE]", "").trim();
-        session.status = "ai_conceded";
-        session.winner = "user";
-        await db.set(`debate:session:${sessionId}`, session);
+        await store.updateSession(sessionId, {
+            status: "ai_conceded",
+            winner: "user"
+        });
 
         yield { type: "concede", reason: concedeReason };
         return;
@@ -156,37 +142,20 @@ Remember: You are in a debate, so be persuasive and competitive while remaining 
     await addDebateMessage(sessionId, "assistant", fullResponse);
 }
 
-export async function listDebateSessions(): Promise<DebateSession[]> {
-    const list = await getDebatesList();
-    const sessions: DebateSession[] = [];
-
-    for (const item of list) {
-        const session = await getDebateSession(item.id);
-        if (session) {
-            sessions.push(session);
-        }
-    }
-
-    return sessions.sort((a, b) => b.createdAt - a.createdAt);
+export async function listDebateSessions(userId: string): Promise<DebateSession[]> {
+    return store.listSessions(userId);
 }
 
 export async function deleteDebateSession(id: string): Promise<boolean> {
-    const list = await getDebatesList();
-    const filteredList = list.filter(item => item.id !== id);
-    await db.set(DEBATE_LIST_KEY, filteredList);
-
-    // Delete session
-    await db.delete(`debate:session:${id}`);
+    await store.deleteSession(id);
     return true;
 }
 
 export async function surrenderDebate(sessionId: string): Promise<void> {
-    const session = await getDebateSession(sessionId);
-    if (session) {
-        session.status = "user_surrendered";
-        session.winner = "ai";
-        await db.set(`debate:session:${sessionId}`, session);
-    }
+    await store.updateSession(sessionId, {
+        status: "user_surrendered",
+        winner: "ai"
+    });
 }
 
 export async function* streamDebateAnalysis(sessionId: string): AsyncGenerator<
@@ -252,9 +221,10 @@ Provide a comprehensive analysis in this EXACT JSON format (no markdown, just JS
         const analysis: DebateAnalysis = JSON.parse(jsonText);
 
         if (!session.winner) {
-            session.winner = analysis.winner;
-            session.status = "completed";
-            await db.set(`debate:session:${sessionId}`, session);
+            await store.updateSession(sessionId, {
+                winner: analysis.winner,
+                status: "completed"
+            });
         }
 
         yield { type: "analysis", data: analysis };
@@ -334,9 +304,10 @@ Provide a comprehensive analysis in this EXACT JSON format (no markdown, just JS
         console.log("[Debate Analysis] Successfully parsed analysis");
 
         if (!session.winner) {
-            session.winner = analysis.winner;
-            session.status = "completed";
-            await db.set(`debate:session:${sessionId}`, session);
+            await store.updateSession(sessionId, {
+                winner: analysis.winner,
+                status: "completed"
+            });
         }
 
         return analysis;

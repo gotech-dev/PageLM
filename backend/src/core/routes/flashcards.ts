@@ -1,41 +1,56 @@
-import db from '../../utils/database/keyv'
+import { authMiddleware, AuthRequest } from '../../middleware/auth'
+import * as flashcardService from '../../services/flashcards'
 
 export function flashcardRoutes(app: any) {
-  app.post('/flashcards', async (req: any, res: any) => {
+  app.post('/flashcards', authMiddleware, async (req: AuthRequest, res: any) => {
     try {
       const { question, answer, tag } = req.body
-      if (!question || !answer || !tag) return res.status(400).send({ error: 'question, answer, tag required' })
-      const id = crypto.randomUUID()
-      const card = { id, question, answer, tag, created: Date.now() }
-      let cards = await db.get('flashcards') || []
-      cards.push(card)
-      await db.set(`flashcard:${id}`, card)
-      await db.set('flashcards', cards)
+      if (!question || !answer || !tag) {
+        return res.status(400).send({ error: 'question, answer, tag required' })
+      }
+
+      const card = await flashcardService.createFlashcard(req.userId!, question, answer, tag)
       res.send({ ok: true, flashcard: card })
-    } catch (e: any) {
-      res.status(500).send({ ok: false, error: e?.message || 'failed' })
+    } catch (e: unknown) {
+      const error = e as Error
+      res.status(500).send({ ok: false, error: error?.message || 'failed' })
     }
   })
 
-  app.get('/flashcards', async (_: any, res: any) => {
+  app.get('/flashcards', authMiddleware, async (req: AuthRequest, res: any) => {
     try {
-      res.send({ ok: true, flashcards: await db.get('flashcards') || [] })
-    } catch (e: any) {
-      res.status(500).send({ ok: false, error: e?.message || 'failed' })
+      const tag = req.query.tag as string | undefined
+      const flashcards = await flashcardService.listFlashcards(req.userId!, tag)
+      res.send({ ok: true, flashcards })
+    } catch (e: unknown) {
+      const error = e as Error
+      res.status(500).send({ ok: false, error: error?.message || 'failed' })
     }
   })
 
-  app.delete('/flashcards/:id', async (req: any, res: any) => {
+  app.delete('/flashcards/:id', authMiddleware, async (req: AuthRequest, res: any) => {
     try {
       const id = req.params.id
       if (!id) return res.status(400).send({ error: 'id required' })
-      await db.delete(`flashcard:${id}`)
-      let cards = await db.get('flashcards') || []
-      cards = cards.filter((c: any) => c.id !== id)
-      await db.set('flashcards', cards)
+
+      await flashcardService.deleteFlashcard(id)
       res.send({ ok: true })
-    } catch (e: any) {
-      res.status(500).send({ ok: false, error: e?.message || 'failed' })
+    } catch (e: unknown) {
+      const error = e as Error
+      res.status(500).send({ ok: false, error: error?.message || 'failed' })
+    }
+  })
+
+  app.patch('/flashcards/:id', authMiddleware, async (req: AuthRequest, res: any) => {
+    try {
+      const id = req.params.id
+      const { question, answer, tag } = req.body
+
+      const updated = await flashcardService.updateFlashcard(id, { question, answer, tag })
+      res.send({ ok: true, flashcard: updated })
+    } catch (e: unknown) {
+      const error = e as Error
+      res.status(500).send({ ok: false, error: error?.message || 'failed' })
     }
   })
 }

@@ -1,47 +1,70 @@
-import { randomUUID } from "crypto";
-import db from "../database/keyv";
+import { randomUUID } from "crypto"
+import { query, queryOne } from "../database/mysql"
 
-export type ChatMeta = { id: string; title: string; at: number };
-export type ChatMsg = { role: "user" | "assistant"; content: any; at: number };
+export type ChatMeta = { id: string; title: string; userId: string; createdAt: Date; updatedAt: Date }
+export type ChatMsg = { role: "user" | "assistant"; content: any; createdAt: Date }
 
-export async function mkChat(t: string) {
-  const id = randomUUID();
-  const c: ChatMeta = { id, title: t.slice(0, 60), at: Date.now() };
-  await db.set(`chat:${id}`, c);
-  await db.set(`msgs:${id}`, [] as ChatMsg[]);
-  const idx = ((await db.get("chat:index")) as string[]) || [];
-  idx.unshift(id);
-  await db.set("chat:index", idx.slice(0, 1000));
-  return c;
-}
+export async function mkChat(userId: string, title: string): Promise<ChatMeta> {
+  const id = randomUUID()
 
-export async function getChat(id: string) {
-  const a = await db.get(`chat:${id}`);
-  return a;
-}
+  await query(
+    'INSERT INTO chats (id, user_id, title) VALUES (?, ?, ?)',
+    [id, userId, title.slice(0, 60)]
+  )
 
-export async function addMsg(id: string, m: ChatMsg) {
-  const a = ((await db.get(`msgs:${id}`)) as ChatMsg[]) || [];
-  a.push(m);
-  await db.set(`msgs:${id}`, a);
-  const c = (await db.get(`chat:${id}`)) as ChatMeta;
-  if (c) {
-    c.at = Date.now();
-    await db.set(`chat:${id}`, c);
+  return {
+    id,
+    title: title.slice(0, 60),
+    userId,
+    createdAt: new Date(),
+    updatedAt: new Date()
   }
 }
 
-export async function listChats(n = 50) {
-  const idx = ((await db.get("chat:index")) as string[]) || [];
-  const out: ChatMeta[] = [];
-  for (const id of idx.slice(0, n)) {
-    const c = (await db.get(`chat:${id}`)) as ChatMeta | undefined;
-    if (c) out.push(c);
-  }
-  return out.sort((x, y) => y.at - x.at);
+export async function getChat(id: string): Promise<ChatMeta | null> {
+  return queryOne<ChatMeta>(
+    'SELECT id, user_id as userId, title, created_at as createdAt, updated_at as updatedAt FROM chats WHERE id = ?',
+    [id]
+  )
 }
 
-export async function getMsgs(id: string) {
-  const a = ((await db.get(`msgs:${id}`)) as ChatMsg[]) || [];
-  return a;
+export async function addMsg(chatId: string, msg: ChatMsg): Promise<void> {
+  await query(
+    'INSERT INTO chat_messages (chat_id, role, content) VALUES (?, ?, ?)',
+    [chatId, msg.role, JSON.stringify(msg.content)]
+  )
+
+  // Update chat's updated_at
+  await query(
+    'UPDATE chats SET updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+    [chatId]
+  )
+}
+
+export async function listChats(userId: string, limit = 50): Promise<ChatMeta[]> {
+  return query<ChatMeta>(
+    `SELECT id, user_id as userId, title, created_at as createdAt, updated_at as updatedAt 
+     FROM chats 
+     WHERE user_id = ? 
+     ORDER BY updated_at DESC 
+     LIMIT ?`,
+    [userId, limit]
+  )
+}
+
+export async function getMsgs(chatId: string): Promise<ChatMsg[]> {
+  const rows = await query<any>(
+    'SELECT role, content, created_at as createdAt FROM chat_messages WHERE chat_id = ? ORDER BY created_at ASC',
+    [chatId]
+  )
+
+  return rows.map(row => ({
+    role: row.role,
+    content: JSON.parse(row.content),
+    createdAt: row.createdAt
+  }))
+}
+
+export async function deleteChat(chatId: string): Promise<void> {
+  await query('DELETE FROM chats WHERE id = ?', [chatId])
 }
