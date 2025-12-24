@@ -1,3 +1,4 @@
+import jwt from 'jsonwebtoken';
 import { handleAsk } from "../../lib/ai/ask";
 import { parseMultipart, handleUpload } from "../../lib/parser/upload";
 import {
@@ -8,6 +9,22 @@ import {
   getMsgs,
 } from "../../utils/chat/chat";
 import { emitToAll } from "../../utils/chat/ws";
+
+const JWT_SECRET = process.env.JWT_SECRET || 'pagelm-secret-key';
+
+function getUserId(req: any): string {
+  try {
+    const authHeader = req.headers?.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.substring(7);
+      const decoded = jwt.verify(token, JWT_SECRET) as any;
+      return decoded.sub || decoded.userId || decoded.id || "default-user";
+    }
+  } catch (e) {
+    // ignore invalid tokens
+  }
+  return "default-user";
+}
 
 type UpFile = { path: string; filename: string; mimeType: string };
 
@@ -42,6 +59,9 @@ export function chatRoutes(app: any) {
       const ct = String(req.headers["content-type"] || "");
       const isMp = ct.includes("multipart/form-data");
 
+      // Extract User ID
+      const userId = getUserId(req);
+
       let q = "";
       let chatId: string | undefined;
       let files: UpFile[] = [];
@@ -64,7 +84,8 @@ export function chatRoutes(app: any) {
       }
 
       let chat = chatId ? await getChat(chatId) : undefined;
-      if (!chat) chat = await mkChat(q);
+      // FIX: pass userId and q (title) to mkChat
+      if (!chat) chat = await mkChat(userId, q);
       const id = chat.id;
       const ns = `chat:${id}`;
 
@@ -99,7 +120,7 @@ export function chatRoutes(app: any) {
           }
 
           const tUser = Date.now();
-          await addMsg(id, { role: "user", content: q, at: Date.now() });
+          await addMsg(id, { role: "user", content: q, createdAt: new Date() });
           emitToAll(chatSockets.get(id), {
             type: "phase",
             value: "generating",
@@ -120,7 +141,7 @@ export function chatRoutes(app: any) {
           await addMsg(id, {
             role: "assistant",
             content: answer,
-            at: Date.now(),
+            createdAt: new Date(),
           });
           emitToAll(chatSockets.get(id), { type: "answer", answer });
           emitToAll(chatSockets.get(id), { type: "done" });
@@ -139,10 +160,17 @@ export function chatRoutes(app: any) {
     }
   });
 
-  app.get("/chats", async (_: any, res: any) => {
-    const t = Date.now();
-    const chats = await listChats();
-    res.send({ ok: true, chats });
+  app.get("/chats", async (req: any, res: any) => {
+    try {
+      const t = Date.now();
+      // FIX: pass userId to listChats
+      const userId = getUserId(req);
+      const chats = await listChats(userId);
+      res.send({ ok: true, chats });
+    } catch (e: any) {
+      console.error("GET /chats error:", e);
+      res.status(500).send({ error: e.message });
+    }
   });
 
   app.get("/chats/:id", async (req: any, res: any) => {

@@ -47,8 +47,8 @@ export async function listChats(userId: string, limit = 50): Promise<ChatMeta[]>
      FROM chats 
      WHERE user_id = ? 
      ORDER BY updated_at DESC 
-     LIMIT ?`,
-    [userId, limit]
+     LIMIT ${Number(limit) || 50}`,
+    [userId]
   )
 }
 

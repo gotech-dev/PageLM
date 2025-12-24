@@ -78,8 +78,8 @@ export default function Landing() {
           onDrop={onDropZoneDrop}
         />
 
-        <div className="flex flex-col w-full bg-stone-950 border border-stone-900 border-t-0 rounded-b-3xl overflow-hidden shadow-xl">
-          <div className="flex items-center p-0.5 overflow-x-auto no-scrollbar md:border-b border-stone-900 shrink-0">
+        <div className="flex flex-col w-full bg-stone-950 border border-stone-900 border-t-0 rounded-b-3xl shadow-xl">
+          <div className="flex items-center p-0.5 overflow-x-auto md:overflow-visible no-scrollbar md:border-b border-stone-900 shrink-0">
             <div className="relative flex-1 md:flex-1 shrink-0">
               <div
                 onClick={() => setShowMode(!showMode)}
@@ -187,7 +187,7 @@ export default function Landing() {
             </div>
           </div>
 
-          <div className="flex-1 min-w-0 bg-stone-900/10 border-t border-stone-900/50 md:border-t-0">
+          <div className="flex-1 min-w-0 bg-stone-900/10 border-t border-stone-900/50 md:border-t-0 rounded-b-3xl overflow-hidden">
             <PromptRail onSend={(p) => onSend(p)} />
           </div>
         </div>

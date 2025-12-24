@@ -2,6 +2,10 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import PlannerMindmap from "./PlannerMindmap"
 import TodayFocus from "./TodayFocus"
 import QuickAdd from "./QuickAdd"
+import FocusTimer from "./FocusTimer"
+import CalendarView from "./CalendarView"
+import AnalyticsView from "./AnalyticsView"
+import { useLanguage } from "../../lib/LanguageContext"
 import { connectPlannerStream, plannerDelete, plannerIngest, plannerList, plannerMaterials, plannerPlan, plannerUpdate, plannerWeekly, plannerCreateWithFiles, plannerUploadFiles, plannerDeleteFile, type PlannerEvent, type PlannerSlot, type PlannerTask, type WeeklyPlan } from "../../lib/api"
 
 function fmtTime(ts: number) {
@@ -9,27 +13,8 @@ function fmtTime(ts: number) {
     return d.toLocaleString(undefined, { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" })
 }
 
-function DaySlots({ date, slots, tasks }: { date: string; slots: PlannerSlot[]; tasks: Record<string, PlannerTask> }) {
-    return (
-        <div className="rounded-xl border border-zinc-800 bg-stone-950 p-3">
-            <div className="text-xs text-stone-400 mb-2">{date}</div>
-            <div className="space-y-2">
-                {slots.length === 0 && <div className="text-stone-500 text-sm">No slots</div>}
-                {slots.map(s => (
-                    <div key={s.id} className="flex items-center justify-between text-sm text-stone-200/90">
-                        <div className="truncate">
-                            <span className="px-1.5 py-0.5 rounded bg-stone-800/60 text-[10px] mr-2">{s.kind}</span>
-                            <span className="font-medium">{tasks[s.taskId]?.title || s.taskId}</span>
-                        </div>
-                        <div className="text-stone-400 text-xs">{fmtTime(s.start)} → {new Date(s.end).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
-                    </div>
-                ))}
-            </div>
-        </div>
-    )
-}
-
 export default function Planner() {
+    const { t } = useLanguage()
     const [text, setText] = useState("")
     const [loading, setLoading] = useState(false)
     const [tasks, setTasks] = useState<PlannerTask[]>([])
@@ -38,12 +23,13 @@ export default function Planner() {
     const [materials, setMaterials] = useState<Record<string, any>>({})
     const [loadingStates, setLoadingStates] = useState<Record<string, { plan?: boolean; summary?: boolean; flashcards?: boolean }>>({})
     const wsRef = useRef<ReturnType<typeof connectPlannerStream> | null>(null)
-    const [view, setView] = useState<"today" | "list" | "mindmap">("today")
+
+    // Updated View State
+    const [view, setView] = useState<"overview" | "calendar" | "mindmap" | "analytics">("overview")
+
     const [selectedFiles, setSelectedFiles] = useState<File[]>([])
     const [notifications, setNotifications] = useState<Array<{ id: string; type: string; message: string; at: number }>>([])
-    const fileInputRef = useRef<HTMLInputElement>(null)
 
-    const taskIndex = useMemo(() => Object.fromEntries(tasks.map(t => [t.id, t])), [tasks])
     const slotsByTask = useMemo(() => {
         const m: Record<string, PlannerSlot[]> = {}
         for (const d of plan?.days || []) for (const s of d.slots) (m[s.taskId] ||= []).push(s)
@@ -51,24 +37,7 @@ export default function Planner() {
         return m
     }, [plan])
 
-    const suggestions = useMemo(() => {
-        const now = Date.now()
-        type Sug = { task: PlannerTask; score: number; nextSlot?: PlannerSlot }
-        const out: Sug[] = []
-        for (const t of tasks) {
-            if (t.status === "done") continue
-            const hoursLeft = Math.max(0.1, (t.dueAt - now) / 3600000)
-            const planned = slotsByTask[t.id]?.length || 0
-            const nextSlot = (slotsByTask[t.id] || []).find(s => s.start >= now) || (slotsByTask[t.id] || [])[0]
-            let score = (t.priority || 3) * (1 / hoursLeft) + (t.estMins || 60) * 0.002
-            if (!planned) score += 0.5
-            if (t.status === "blocked") score -= 2
-            if (t.status === "doing") score += 0.2
-            out.push({ task: t, score, nextSlot })
-        }
-        return out.sort((a, b) => b.score - a.score).slice(0, 3)
-    }, [tasks, slotsByTask])
-
+    // WebSocket & Notification logic
     useEffect(() => {
         wsRef.current = connectPlannerStream(sid, (ev: PlannerEvent) => {
             if (ev.type === "plan.update") {
@@ -117,7 +86,6 @@ export default function Planner() {
             if (ev.type === "materials.chunk") {
                 setMaterials(m => ({ ...m, _chunks: [...(m._chunks || []), ev] }))
             }
-            if (ev.type === "materials.done") { }
         })
         return () => { try { wsRef.current?.close() } catch { } }
     }, [sid])
@@ -130,7 +98,6 @@ export default function Planner() {
         }, 5000)
     }
 
-    // Request notification permission on mount
     useEffect(() => {
         if ('Notification' in window && Notification.permission === 'default') {
             Notification.requestPermission()
@@ -172,25 +139,10 @@ export default function Planner() {
         }
     }
 
-    const handleFileSelect = (files: FileList | null) => {
-        if (!files) return
-        const newFiles = Array.from(files).filter(f =>
-            f.size <= 10 * 1024 * 1024 && // 10MB limit
-            (f.type.includes('pdf') || f.type.includes('image') || f.type.includes('text') || f.type.includes('document'))
-        )
-        setSelectedFiles(prev => [...prev, ...newFiles])
-    }
-
-    const removeFile = (index: number) => {
-        setSelectedFiles(prev => prev.filter((_, i) => i !== index))
-    }
-
     const planTask = async (id: string) => {
         setLoadingStates(prev => ({ ...prev, [id]: { ...prev[id], plan: true } }))
         try {
-            console.log('Planning task:', id)
             const result = await plannerPlan(id, false)
-            console.log('Plan result:', result)
             const { task } = result
             setTasks(t => t.map(x => x.id === id ? task as any : x))
             const wp = await plannerWeekly(false)
@@ -217,7 +169,6 @@ export default function Planner() {
     const onUpload = async (id: string, file: File) => {
         try {
             await plannerUploadFiles(id, [file])
-            // Files will be updated via WebSocket event
         } catch (e) {
             addNotification("error", "Failed to upload file")
         }
@@ -226,7 +177,6 @@ export default function Planner() {
     const deleteFile = async (taskId: string, fileId: string) => {
         try {
             await plannerDeleteFile(taskId, fileId)
-            // File removal will be updated via WebSocket event
         } catch (e) {
             addNotification("error", "Failed to delete file")
         }
@@ -243,7 +193,6 @@ export default function Planner() {
     }
 
     const startNow = async (id: string) => {
-        // Mark as doing and ensure it has a plan
         await mark(id, "doing")
         if (!slotsByTask[id]?.length) await planTask(id)
     }
@@ -253,42 +202,53 @@ export default function Planner() {
         setTasks(t => t.map(x => x.id === id ? task : x))
     }
 
-    const fmtRel = (ts: number) => {
-        const d = ts - Date.now()
-        const sign = d < 0 ? "ago" : "in"
-        const v = Math.abs(d)
-        const h = Math.round(v / 3600000)
-        if (h < 1) {
-            const m = Math.max(1, Math.round(v / 60000))
-            return `${sign} ${m}m`
-        }
-        return `${sign} ${h}h`
-    }
+    const NavTab = ({ id, label }: { id: typeof view, label: string }) => (
+        <button
+            onClick={() => setView(id)}
+            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${view === id
+                ? 'border-emerald-500 text-stone-100'
+                : 'border-transparent text-stone-500 hover:text-stone-300'
+                }`}
+        >
+            {label}
+        </button>
+    )
 
     return (
-        <div className="rounded-2xl border border-zinc-800 bg-stone-950">
-            <div className="px-4 py-3 border-b border-zinc-800 flex items-center justify-between">
-                <div className="text-stone-200 font-medium">Homework Planner</div>
-                <div className="flex items-center gap-2">
-                    <div className="text-xs bg-zinc-900 border border-zinc-800 rounded overflow-hidden">
-                        <button onClick={() => setView("today")} className={`px-2 py-1 ${view === 'today' ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-300'}`}>Today</button>
-                        <button onClick={() => setView("list")} className={`px-2 py-1 ${view === 'list' ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-300'}`}>List</button>
-                        <button onClick={() => setView("mindmap")} className={`px-2 py-1 ${view === 'mindmap' ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-300'}`}>Mindmap</button>
-                    </div>
-                    <button onClick={reload} className="text-xs px-2 py-1 rounded bg-stone-800 text-stone-200">Refresh</button>
+        <div className="rounded-2xl border border-zinc-800 bg-black min-h-[85vh] flex flex-col">
+            {/* Header & Navigation */}
+            <div className="px-6 py-4 border-b border-zinc-800 flex items-center justify-between">
+                <div>
+                    <h2 className="text-xl font-semibold text-stone-100 tracking-tight">{t.planner.title}</h2>
+                    <p className="text-xs text-stone-500">{t.planner.subtitle}</p>
+                </div>
+                <div className="flex items-center gap-4">
+                    <button onClick={reload} className="p-2 text-stone-500 hover:text-stone-300 transition-colors" title={t.planner.refresh}>
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                    </button>
                 </div>
             </div>
 
-            <div className="p-4 space-y-6">
-                {/* Notifications */}
+            {/* Sub-Navigation */}
+            <div className="px-6 border-b border-zinc-800 flex gap-2">
+                <NavTab id="overview" label={t.planner.tabs.overview} />
+                <NavTab id="calendar" label={t.planner.tabs.calendar} />
+                <NavTab id="mindmap" label={t.planner.tabs.mindmap} />
+                <NavTab id="analytics" label={t.planner.tabs.analytics} />
+            </div>
+
+            {/* Main Content Area */}
+            <div className="flex-1 p-6 relative">
+                {/* Notifications Toast */}
                 {notifications.length > 0 && (
-                    <div className="space-y-2">
+                    <div className="absolute top-4 right-4 z-50 space-y-2 pointer-events-none">
                         {notifications.map(n => (
-                            <div key={n.id} className={`px-3 py-2 rounded-lg text-sm ${n.type === 'error' ? 'bg-red-900/50 border border-red-800 text-red-200' :
-                                n.type === 'success' ? 'bg-green-900/50 border border-green-800 text-green-200' :
-                                    n.type === 'reminder' ? 'bg-yellow-900/50 border border-yellow-800 text-yellow-200' :
-                                        n.type === 'break' ? 'bg-purple-900/50 border border-purple-800 text-purple-200' :
-                                            'bg-blue-900/50 border border-blue-800 text-blue-200'
+                            <div key={n.id} className={`px-4 py-3 rounded-lg text-sm shadow-xl border backdrop-blur-md animate-in slide-in-from-right-8 pointer-events-auto ${n.type === 'error' ? 'bg-red-950/80 border-red-900 text-red-200' :
+                                n.type === 'success' ? 'bg-emerald-950/80 border-emerald-900 text-emerald-200' :
+                                    n.type === 'reminder' ? 'bg-amber-950/80 border-amber-900 text-amber-200' :
+                                        'bg-zinc-900/90 border-zinc-800 text-stone-300'
                                 }`}>
                                 {n.message}
                             </div>
@@ -296,21 +256,153 @@ export default function Planner() {
                     </div>
                 )}
 
-                {view === 'today' ? (
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                        <div className="lg:col-span-2">
+                {/* View Switch */}
+                {view === 'overview' && (
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
+                        {/* Main Dashboard Column */}
+                        <div className="lg:col-span-2 space-y-6">
+                            <FocusTimer />
+
                             <TodayFocus
                                 tasks={tasks}
                                 onStartSession={startNow}
                                 onCompleteTask={(id) => mark(id, "done")}
                             />
+
+                            {/* Detailed Task List */}
+                            <div className="mt-8">
+                                <h3 className="text-sm font-medium text-stone-400 mb-4">{t.planner.tasks.all}</h3>
+                                <div className="space-y-3">
+                                    {tasks.length === 0 && (
+                                        <div className="p-8 rounded-xl border border-zinc-800 bg-zinc-900/10 text-center space-y-6">
+                                            <h4 className="text-lg font-medium text-stone-200">{t.planner.onboarding.title}</h4>
+                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                                <div className="space-y-2">
+                                                    <div className="text-2xl">⚡</div>
+                                                    <div className="font-medium text-stone-300">{t.planner.onboarding.step1.title}</div>
+                                                    <div className="text-xs text-stone-500">{t.planner.onboarding.step1.desc}</div>
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <div className="text-2xl">📅</div>
+                                                    <div className="font-medium text-stone-300">{t.planner.onboarding.step2.title}</div>
+                                                    <div className="text-xs text-stone-500">{t.planner.onboarding.step2.desc}</div>
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <div className="text-2xl">🎯</div>
+                                                    <div className="font-medium text-stone-300">{t.planner.onboarding.step3.title}</div>
+                                                    <div className="text-xs text-stone-500">{t.planner.onboarding.step3.desc}</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {tasks.sort((a, b) => a.dueAt - b.dueAt).map(tsk => (
+                                        <div key={tsk.id} className="group flex flex-col sm:flex-row items-start justify-between p-4 rounded-lg border border-zinc-800 bg-zinc-900/30 hover:bg-zinc-900/80 transition-all gap-4">
+                                            <div className="min-w-0 flex-1">
+                                                <div className="flex items-center gap-2">
+                                                    <div className={`w-2 h-2 rounded-full shrink-0 ${tsk.status === 'done' ? 'bg-emerald-500' :
+                                                        tsk.status === 'blocked' ? 'bg-red-500' :
+                                                            tsk.status === 'doing' ? 'bg-amber-500' : 'bg-stone-600'
+                                                        }`} />
+                                                    <span className={`font-medium truncate ${tsk.status === 'done' ? 'text-stone-500 line-through' : 'text-stone-200'}`}>{tsk.title}</span>
+                                                </div>
+                                                <div className="text-xs text-stone-500 mt-1 ml-4 flex flex-wrap gap-2">
+                                                    <span>{tsk.dueAt ? fmtTime(tsk.dueAt) : t.planner.tasks.noDue}</span>
+                                                    <span>·</span>
+                                                    <span>{tsk.estMins}{t.planner.tasks.mins}</span>
+                                                    {tsk.files && tsk.files.length > 0 && <span>· {tsk.files.length} {t.planner.tasks.files}</span>}
+                                                </div>
+
+                                                {/* Files Display */}
+                                                {tsk.files && tsk.files.length > 0 && (
+                                                    <div className="ml-4 mt-2 flex flex-wrap gap-2">
+                                                        {tsk.files.map(file => (
+                                                            <div key={file.id} className="inline-flex items-center gap-1 px-2 py-1 bg-zinc-800 rounded text-[10px] text-zinc-300">
+                                                                <span className="truncate max-w-24">{file.originalName}</span>
+                                                                <button onClick={() => deleteFile(tsk.id, file.id)} className="hover:text-red-400">×</button>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+
+                                                {/* AI Materials Display */}
+                                                {materials[tsk.id]?.summary && (
+                                                    <div className="ml-4 mt-2 text-xs text-zinc-400 bg-zinc-900/50 p-2 rounded border border-zinc-800">
+                                                        <div className="font-semibold text-violet-400 mb-1">{t.planner.aiSummary}:</div>
+                                                        {materials[tsk.id].summary.answer || materials[tsk.id].summary}
+                                                    </div>
+                                                )}
+
+                                            </div>
+
+                                            <div className="flex items-center gap-2 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity self-end sm:self-center">
+                                                {/* State Select */}
+                                                <select
+                                                    value={tsk.status}
+                                                    onChange={e => mark(tsk.id, e.target.value as any)}
+                                                    className="bg-zinc-900 border border-zinc-800 text-stone-400 text-xs rounded px-2 py-1 focus:ring-1 focus:ring-emerald-500 outline-none"
+                                                >
+                                                    <option value="todo">{t.planner.tasks.status.todo}</option>
+                                                    <option value="doing">{t.planner.tasks.status.doing}</option>
+                                                    <option value="done">{t.planner.tasks.status.done}</option>
+                                                    <option value="blocked">{t.planner.tasks.status.blocked}</option>
+                                                </select>
+
+                                                <div className="flex gap-1">
+                                                    <button onClick={() => planTask(tsk.id)} className="p-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-stone-300" title="Plan">
+                                                        {loadingStates[tsk.id]?.plan ? <span className="animate-spin">⌛</span> : '📅'}
+                                                    </button>
+                                                    <button onClick={() => gen(tsk.id, "summary")} className="p-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-stone-300" title="AI Summary">
+                                                        {loadingStates[tsk.id]?.summary ? <span className="animate-spin">...</span> : '🤖'}
+                                                    </button>
+                                                    <button onClick={() => del(tsk.id)} className="p-1.5 rounded bg-zinc-800 hover:bg-red-900/50 hover:text-red-400 text-stone-300" title="Delete">
+                                                        🗑️
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
                         </div>
-                        <div>
+
+                        {/* Sidebar Column */}
+                        <div className="space-y-6">
                             <QuickAdd onAdd={add} loading={loading} />
+
+                            {/* Upcoming from Week Plan */}
+                            <div className="p-4 rounded-xl border border-zinc-800 bg-zinc-900/30">
+                                <h3 className="text-xs font-semibold text-stone-500 mb-3 uppercase tracking-wider">{t.planner.upcoming}</h3>
+                                {plan ? (
+                                    <div className="space-y-4">
+                                        {plan.days.slice(0, 3).map(d => (
+                                            <div key={d.date}>
+                                                <div className="text-xs text-stone-400 mb-2 font-medium bg-zinc-900/50 inline-block px-1.5 rounded">{d.date}</div>
+                                                {d.slots.length ? (
+                                                    <div className="space-y-1">
+                                                        {d.slots.map(s => (
+                                                            <div key={s.id} className="text-xs text-stone-300 pl-3 border-l-2 border-zinc-700 py-0.5 hover:border-emerald-500 transition-colors">
+                                                                <span className="text-stone-500 mr-2">{new Date(s.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                                                {tasks.find(t => t.id === s.taskId)?.title || 'Task'}
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                ) : <div className="text-xs text-stone-600 italic pl-2">{t.planner.noActivePlans}</div>}
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : <div className="text-sm text-stone-500">{t.planner.noPlanGen}</div>}
+                            </div>
                         </div>
                     </div>
-                ) : view === 'mindmap' ? (
-                    <div className="rounded-xl border border-zinc-800 overflow-hidden h-[75vh]">
+                )}
+
+                {view === 'calendar' && (
+                    <CalendarView tasks={tasks} onPlan={planTask} />
+                )}
+
+                {view === 'mindmap' && (
+                    <div className="h-full rounded-xl border border-zinc-800 overflow-hidden relative group">
                         <PlannerMindmap
                             tasks={tasks}
                             plan={plan}
@@ -323,82 +415,10 @@ export default function Planner() {
                             onUpdateNotes={updateNotes}
                         />
                     </div>
-                ) : (
-                    <div className="grid gap-3">
-                        {tasks.map(t => (
-                            <div key={t.id} className="rounded-xl border border-zinc-800 bg-stone-950 p-3">
-                                <div className="flex items-center justify-between">
-                                    <div className="min-w-0">
-                                        <div className="text-zinc-100 font-medium truncate">{t.title}</div>
-                                        <div className="text-zinc-400 text-xs">
-                                            Due {fmtTime(t.dueAt)} · {t.estMins} mins · P{t.priority}
-                                            {t.files && t.files.length > 0 && ` · ${t.files.length} file(s)`}
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        <select value={t.status} onChange={e => mark(t.id, e.target.value as any)} className="bg-stone-900 border border-zinc-800 text-stone-200 text-xs rounded px-2 py-1">
-                                            <option value="todo">todo</option>
-                                            <option value="doing">doing</option>
-                                            <option value="done">done</option>
-                                            <option value="blocked">blocked</option>
-                                        </select>
-                                        <button onClick={() => planTask(t.id)} className="text-xs px-2 py-1 rounded bg-zinc-800 text-zinc-200">Plan</button>
-                                        <button onClick={() => gen(t.id, "summary")} className="text-xs px-2 py-1 rounded bg-zinc-800 text-zinc-200">Summary</button>
-                                        <button onClick={() => gen(t.id, "flashcards")} className="text-xs px-2 py-1 rounded bg-zinc-800 text-zinc-200">Flashcards</button>
-                                        <button onClick={() => del(t.id)} className="text-xs px-2 py-1 rounded bg-red-600 text-white">Delete</button>
-                                    </div>
-                                </div>
-
-                                {/* Task Files */}
-                                {t.files && t.files.length > 0 && (
-                                    <div className="mt-3 border-t border-zinc-800 pt-3">
-                                        <div className="text-zinc-300 text-xs mb-2">Attached Files:</div>
-                                        <div className="flex flex-wrap gap-2">
-                                            {t.files.map(file => (
-                                                <div key={file.id} className="flex items-center gap-1 px-2 py-1 bg-zinc-800 rounded text-xs text-zinc-200">
-                                                    <span className="truncate max-w-32" title={file.originalName}>{file.originalName}</span>
-                                                    <span className="text-zinc-400">({Math.round(file.size / 1024)}KB)</span>
-                                                    <button
-                                                        onClick={() => deleteFile(t.id, file.id)}
-                                                        className="text-zinc-400 hover:text-red-400 ml-1"
-                                                        title="Delete file"
-                                                    >×</button>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-
-                                {materials[t.id]?.summary && (
-                                    <div className="mt-3 text-sm text-zinc-200 whitespace-pre-wrap">{materials[t.id].summary.answer || materials[t.id].summary}</div>
-                                )}
-                                {Array.isArray(materials[t.id]?.flashcards?.flashcards) && (
-                                    <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                        {materials[t.id].flashcards.flashcards.map((c: any, i: number) => (
-                                            <div key={i} className="border border-zinc-800 rounded-lg p-2">
-                                                <div className="text-zinc-200 text-sm font-medium">Q: {c.q}</div>
-                                                <div className="text-zinc-400 text-sm">A: {c.a}</div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                        ))}
-                    </div>
                 )}
-                {view === 'list' && (
-                    <div>
-                        <div className="text-stone-300 text-sm mb-2">Weekly Plan</div>
-                        {plan ? (
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                                {plan.days.map(d => (
-                                    <DaySlots key={d.date} date={d.date} slots={d.slots} tasks={taskIndex} />
-                                ))}
-                            </div>
-                        ) : (
-                            <div className="text-stone-500 text-sm">No plan yet</div>
-                        )}
-                    </div>
+
+                {view === 'analytics' && (
+                    <AnalyticsView />
                 )}
             </div>
         </div>

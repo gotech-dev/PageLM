@@ -547,26 +547,26 @@ export default function PlannerMindmap({ tasks, plan, onPlan, onAssist, onUpdate
                                     setPan({ x: newPanX, y: newPanY })
                                     setZoom(newZoom)
                                 }}>
-                                <div className="pointer-events-none absolute -inset-2 opacity-35" style={{ background: `radial-gradient(22px 22px at 50% 65%, rgba(56,189,248,0.2), transparent 70%)` }} />
-                                <div onPointerDown={e => onDown(e, t.id)} className="cursor-grab active:cursor-grabbing rounded-full border bg-[#0b1220]/70 border-[#1f2937] pl-3 pr-1.5 py-1.5 shadow-[0_2px_8px_rgba(0,0,0,0.4)] backdrop-blur flex items-center gap-1.5">
-                                    <div className="text-[12px] text-slate-200 whitespace-nowrap max-w-[260px] truncate">{t.title}</div>
-                                    <button onClick={(e) => { e.stopPropagation(); setMenuOpen(menuOpen === t.id ? null : t.id) }} className="text-[12px] text-slate-300 hover:text-slate-100 px-1 rounded hover:bg-stone-800">⋯</button>
+                                <div className="pointer-events-none absolute -inset-2 opacity-35" style={{ background: `radial-gradient(22px 22px at 50% 65%, rgba(139,92,246,0.15), transparent 70%)` }} />
+                                <div onPointerDown={e => onDown(e, t.id)} className="cursor-grab active:cursor-grabbing rounded-full border bg-stone-950/80 border-zinc-800 pl-3 pr-1.5 py-1.5 shadow-[0_2px_8px_rgba(0,0,0,0.4)] backdrop-blur flex items-center gap-1.5">
+                                    <div className="text-[12px] text-stone-200 whitespace-nowrap max-w-[260px] truncate">{t.title}</div>
+                                    <button onClick={(e) => { e.stopPropagation(); setMenuOpen(menuOpen === t.id ? null : t.id) }} className="text-[12px] text-stone-400 hover:text-stone-100 px-1 rounded hover:bg-zinc-800">⋯</button>
                                 </div>
                                 {menuOpen === t.id && (
-                                    <div className="absolute left-0 top-[120%] z-30 bg-stone-900/95 border border-zinc-800 rounded-md shadow-lg min-w-[160px] p-1">
-                                        <button onClick={() => { setMenuOpen(null); onUpdateStatus(t.id, 'doing'); onPlan(t.id); }} className="w-full text-left text-[12px] text-stone-200 px-2 py-1 rounded hover:bg-stone-800">Start now</button>
-                                        <button onClick={() => { setMenuOpen(null); onPlan(t.id) }} className="w-full text-left text-[12px] text-stone-200 px-2 py-1 rounded hover:bg-stone-800">Plan</button>
+                                    <div className="absolute left-0 top-[120%] z-30 bg-stone-950 border border-zinc-800 rounded-md shadow-lg min-w-[160px] p-1">
+                                        <button onClick={() => { setMenuOpen(null); onUpdateStatus(t.id, 'doing'); onPlan(t.id); }} className="w-full text-left text-[12px] text-stone-200 px-2 py-1 rounded hover:bg-zinc-900">Start now</button>
+                                        <button onClick={() => { setMenuOpen(null); onPlan(t.id) }} className="w-full text-left text-[12px] text-stone-200 px-2 py-1 rounded hover:bg-zinc-900">Plan</button>
                                         <div className="border-t border-zinc-800 my-1" />
-                                        <button onClick={() => { setMenuOpen(null); onAssist(t.id, 'summary') }} className="w-full text-left text-[12px] text-stone-200 px-2 py-1 rounded hover:bg-stone-800">Assist: Summary</button>
-                                        <button onClick={() => { setMenuOpen(null); onAssist(t.id, 'studyGuide') }} className="w-full text-left text-[12px] text-stone-200 px-2 py-1 rounded hover:bg-stone-800">Assist: Study Guide</button>
-                                        <button onClick={() => { setMenuOpen(null); onAssist(t.id, 'flashcards') }} className="w-full text-left text-[12px] text-stone-200 px-2 py-1 rounded hover:bg-stone-800">Assist: Flashcards</button>
+                                        <button onClick={() => { setMenuOpen(null); onAssist(t.id, 'summary') }} className="w-full text-left text-[12px] text-stone-200 px-2 py-1 rounded hover:bg-zinc-900">Assist: Summary</button>
+                                        <button onClick={() => { setMenuOpen(null); onAssist(t.id, 'studyGuide') }} className="w-full text-left text-[12px] text-stone-200 px-2 py-1 rounded hover:bg-zinc-900">Assist: Study Guide</button>
+                                        <button onClick={() => { setMenuOpen(null); onAssist(t.id, 'flashcards') }} className="w-full text-left text-[12px] text-stone-200 px-2 py-1 rounded hover:bg-zinc-900">Assist: Flashcards</button>
                                         <div className="border-t border-zinc-800 my-1" />
-                                        <label className="block text-[12px] text-stone-200 px-2 py-1 rounded hover:bg-stone-800 cursor-pointer">
+                                        <label className="block text-[12px] text-stone-200 px-2 py-1 rounded hover:bg-zinc-900 cursor-pointer">
                                             Upload file
                                             <input type="file" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) onUpload(t.id, f); setMenuOpen(null) }} />
                                         </label>
-                                        <button onClick={() => { const val = window.prompt('Add note'); if (val != null) { onUpdateNotes?.(t.id, val) } setMenuOpen(null) }} className="w-full text-left text-[12px] text-stone-200 px-2 py-1 rounded hover:bg-stone-800">Add note…</button>
-                                        <button onClick={() => { recenterSteps(t.id); setMenuOpen(null) }} className="w-full text-left text-[12px] text-stone-200 px-2 py-1 rounded hover:bg-stone-800">Recenter steps</button>
+                                        <button onClick={() => { const val = window.prompt('Add note'); if (val != null) { onUpdateNotes?.(t.id, val) } setMenuOpen(null) }} className="w-full text-left text-[12px] text-stone-200 px-2 py-1 rounded hover:bg-zinc-900">Add note…</button>
+                                        <button onClick={() => { recenterSteps(t.id); setMenuOpen(null) }} className="w-full text-left text-[12px] text-stone-200 px-2 py-1 rounded hover:bg-zinc-900">Recenter steps</button>
                                         <div className="border-t border-zinc-800 my-1" />
                                         <button onClick={() => { setMenuOpen(null); onDelete(t.id) }} className="w-full text-left text-[12px] text-red-400 px-2 py-1 rounded hover:bg-red-950/40">Delete task</button>
                                     </div>
@@ -577,7 +577,7 @@ export default function PlannerMindmap({ tasks, plan, onPlan, onAssist, onUpdate
                                 const sp = stepPos[sid]
                                 if (!sp) return null
                                 const cnt = counts[label] || 0
-                                const glow = 'radial-gradient(18px 18px at 50% 60%, rgba(125,211,252,0.12), rgba(0,0,0,0) 70%)'
+                                const glow = 'radial-gradient(18px 18px at 50% 60%, rgba(167,139,250,0.1), rgba(0,0,0,0) 70%)'
                                 const relX = sp.x - p.x
                                 const relY = sp.y - p.y
                                 return (
@@ -590,12 +590,12 @@ export default function PlannerMindmap({ tasks, plan, onPlan, onAssist, onUpdate
                                             const screenY = pan.y + sp.y * zoom
                                             setDragStep({ id: sid, off: { x: localX - screenX, y: localY - screenY } })
                                         }}
-                                        style={{ 
-                                            left: relX, 
-                                            top: relY, 
-                                            width: 84, 
-                                            height: 28, 
-                                            lineHeight: '28px', 
+                                        style={{
+                                            left: relX,
+                                            top: relY,
+                                            width: 84,
+                                            height: 28,
+                                            lineHeight: '28px',
                                             fontSize: '11px'
                                         }}>
                                         <div className="pointer-events-none absolute -inset-2" style={{ background: glow }} />
@@ -613,7 +613,7 @@ export default function PlannerMindmap({ tasks, plan, onPlan, onAssist, onUpdate
                                                     const nn = { ...sp }; delete nn[sid]; return nn
                                                 })
                                             }}
-                                            className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-stone-800 text-stone-100 hover:bg-red-600 hover:text-white flex items-center justify-center z-20"
+                                            className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-zinc-800 text-stone-400 hover:bg-red-600 hover:text-white flex items-center justify-center z-20"
                                             aria-label="Delete bubble"
                                         >×</button>
                                         <span className="relative px-2">{label}{cnt ? ` (${cnt})` : ''}</span>
@@ -634,17 +634,17 @@ export default function PlannerMindmap({ tasks, plan, onPlan, onAssist, onUpdate
                         }} />
                         <div
                             onPointerDown={(e) => onDownCustom(e, n.id)}
-                            className="cursor-grab active:cursor-grabbing rounded-lg border bg-[#0b1220]/70 border-[#1f2937] px-2.5 py-1 shadow-[0_2px_8px_rgba(0,0,0,0.4)] backdrop-blur"
+                            className="cursor-grab active:cursor-grabbing rounded-lg border bg-stone-950/80 border-zinc-800 px-2.5 py-1 shadow-[0_2px_8px_rgba(0,0,0,0.4)] backdrop-blur"
                         >
                             <div className="flex items-center gap-2">
                                 {editingId === n.id ? (
                                     <input autoFocus defaultValue={n.label} onBlur={(e) => { setCustomNodes(list => list.map(x => x.id === n.id ? { ...x, label: e.target.value } : x)); setEditingId(null) }}
-                                        className="bg-transparent text-[12px] text-slate-200 outline-none" />
+                                        className="bg-transparent text-[12px] text-stone-200 outline-none" />
                                 ) : (
-                                    <div className="text-[12px] text-slate-200" onDoubleClick={() => setEditingId(n.id)}>{n.label}</div>
+                                    <div className="text-[12px] text-stone-200" onDoubleClick={() => setEditingId(n.id)}>{n.label}</div>
                                 )}
                                 <button onClick={() => setCustomNodes(list => list.filter(x => x.id !== n.id))}
-                                    className="text-[11px] text-slate-400 hover:text-slate-200">×</button>
+                                    className="text-[11px] text-stone-500 hover:text-stone-300">×</button>
                             </div>
                         </div>
                     </div>

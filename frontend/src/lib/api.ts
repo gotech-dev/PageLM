@@ -254,12 +254,14 @@ export async function createFlashcard(input: {
 export async function listFlashcards() {
   return req<{ ok: true; flashcards: SavedFlashcard[] }>(`${env.backend}/flashcards`, {
     method: "GET",
+    headers: authHeaders(),
   });
 }
 
 export async function deleteFlashcard(id: string) {
   return req<{ ok: true }>(`${env.backend}/flashcards/${encodeURIComponent(id)}`, {
     method: "DELETE",
+    headers: authHeaders(),
   });
 }
 

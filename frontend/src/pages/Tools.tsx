@@ -1,13 +1,16 @@
 import { useState } from "react";
 import { useLanguage } from "../lib/LanguageContext";
+import { useNavigate } from "react-router-dom";
 import PodcastGenerator from "../components/Tools/PodcastGenerator";
 import Transcriber from "../components/Tools/Transcriber";
 import SmartNotes from "../components/Tools/SmartNotes";
+import Planner from "../components/planner/Planner";
 
 type ToolId = "podcast" | "transcriber" | "notes" | "planner" | null;
 
 export default function Tools() {
   const { t } = useLanguage();
+  const navigate = useNavigate();
   const [activeTool, setActiveTool] = useState<ToolId>(null);
 
   const tools = [
@@ -41,7 +44,7 @@ export default function Tools() {
       icon: "📅",
       description: t.tools.toolsDesc,
       color: "blue",
-      ready: false
+      ready: true
     },
   ];
 
@@ -80,6 +83,8 @@ export default function Tools() {
         return <Transcriber />;
       case "notes":
         return <SmartNotes />;
+      case "planner":
+        return <Planner />;
       default:
         return null;
     }
@@ -110,7 +115,14 @@ export default function Tools() {
             return (
               <button
                 key={tool.id}
-                onClick={() => tool.ready && setActiveTool(isActive ? null : tool.id)}
+                onClick={() => {
+                  if (!tool.ready) return;
+                  if (tool.id === "planner") {
+                    navigate("/planner");
+                  } else {
+                    setActiveTool(isActive ? null : tool.id);
+                  }
+                }}
                 disabled={!tool.ready}
                 className={`
                   relative p-4 rounded-2xl bg-stone-900/60 border transition-all duration-300

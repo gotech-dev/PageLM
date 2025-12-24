@@ -20,6 +20,6 @@ app.use(app.serverStatic("/storage", "./storage"))
 
 registerRoutes(app)
 
-app.listen(Number.parseInt(process.env.PORT || '5000'), () => {
-  console.log(`[pagelm] running on ${process.env.VITE_BACKEND_URL}`)
+app.listen(Number.parseInt(process.env.PORT || '5001'), () => {
+  console.log(`[pagelm] running on ${process.env.VITE_BACKEND_URL || 'http://localhost:5001'}`)
 })

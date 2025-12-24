@@ -224,6 +224,89 @@ export const translations = {
             send: "Gửi",
             errorFallback: "Tôi không thể tạo phản hồi từ ngữ cảnh được cung cấp.",
             errorContact: "Không thể kết nối với trợ lý"
+        },
+        planner: {
+            title: "Kế hoạch học tập",
+            subtitle: "Quản lý bài tập, kỳ thi và thời gian biểu",
+            refresh: "Làm mới",
+            tabs: {
+                overview: "Tổng quan",
+                calendar: "Lịch",
+                mindmap: "Sơ đồ tư duy",
+                analytics: "Thống kê"
+            },
+            focusTimer: {
+                pomodoro: "Tập trung",
+                shortBreak: "Nghỉ ngắn",
+                longBreak: "Nghỉ dài",
+                start: "Bắt đầu",
+                pause: "Tạm dừng",
+                reset: "Đặt lại",
+                minutes: "phút",
+                sessionComplete: "Phiên học hoàn thành!",
+                takeBreak: "Đã đến lúc nghỉ ngơi."
+            },
+            todayFocus: {
+                title: "Tiêu điểm hôm nay",
+                empty: "Tuyệt vời!",
+                emptyDesc: "Hôm nay không có gì gấp. Tận hưởng nhé!",
+                workingOn: "Đang thực hiện:",
+                dueToday: "Hạn hôm nay",
+                urgent: "Gấp (24h tới)",
+                moreTasks: "Và +{count} nhiệm vụ khác",
+                start: "Bắt đầu",
+                complete: "Hoàn thành"
+            },
+            tasks: {
+                all: "TẤT CẢ NHIỆM VỤ",
+                noDue: "Không thời hạn",
+                mins: "phút",
+                files: "tệp",
+                status: {
+                    todo: "Cần làm",
+                    doing: "Đang làm",
+                    done: "Xong",
+                    blocked: "Bị chặn"
+                },
+                add: "Thêm nhiệm vụ mới...",
+                create: "Tạo"
+            },
+            quickAdd: "Thêm nhanh",
+            upcoming: "Mục tiêu sắp tới",
+            noActivePlans: "Không có kế hoạch hoạt động",
+            noPlanGen: "Chưa có kế hoạch tuần",
+            aiSummary: "Tóm tắt AI",
+            mindmap: {
+                reset: "Đặt lại bố cục",
+                legend: "Chú thích",
+                task: "Nhiệm vụ",
+                subtask: "Nhiệm vụ con",
+                resource: "Tài liệu",
+                root: "Gốc",
+            },
+            analytics: {
+                studyHours: "Giờ học tập",
+                tasksCompleted: "Nhiệm vụ hoàn thành",
+                focusDistribution: "Phân bổ thời gian",
+                totalHours: "Tổng giờ",
+                tasksDone: "Đã xong",
+                heatmap: "Biểu đồ nhiệt"
+            },
+            onboarding: {
+                title: "Chào mừng đến với Kế hoạch học tập AI",
+                step1: {
+                    title: "1. Thêm nhiệm vụ nhanh",
+                    desc: "Nhập tự nhiên như \"Bài tập Toán chương 5 tối mai\" hoặc tải file lên."
+                },
+                step2: {
+                    title: "2. Để AI lên lịch",
+                    desc: "Bấm nút 📅 để AI tự động sắp xếp thời gian học tối ưu cho bạn."
+                },
+                step3: {
+                    title: "3. Tập trung học",
+                    desc: "Sử dụng đồng hồ Pomodoro và các công cụ AI để hoàn thành bài tập."
+                }
+            }
         }
     },
     en: {
@@ -450,6 +533,89 @@ export const translations = {
             send: "Send",
             errorFallback: "I couldn't generate a response from the provided context.",
             errorContact: "Failed to contact companion"
+        },
+        planner: {
+            title: "Learning Plan",
+            subtitle: "Manage your tasks, exams, and study sessions",
+            refresh: "Refresh",
+            tabs: {
+                overview: "Overview",
+                calendar: "Calendar",
+                mindmap: "Mindmap",
+                analytics: "Analytics"
+            },
+            focusTimer: {
+                pomodoro: "Pomodoro",
+                shortBreak: "Short Break",
+                longBreak: "Long Break",
+                start: "Start",
+                pause: "Pause",
+                reset: "Reset",
+                minutes: "minutes",
+                sessionComplete: "Session complete!",
+                takeBreak: "Time to take a break."
+            },
+            todayFocus: {
+                title: "Today's Focus",
+                empty: "Nothing urgent today!",
+                emptyDesc: "Great job staying on top of your work.",
+                workingOn: "Currently Working On:",
+                dueToday: "Due Today",
+                urgent: "Urgent (Next 24h)",
+                moreTasks: "And +{count} more tasks",
+                start: "Start",
+                complete: "Complete"
+            },
+            tasks: {
+                all: "ALL TASKS",
+                noDue: "No due date",
+                mins: "m",
+                files: "files",
+                status: {
+                    todo: "Todo",
+                    doing: "Doing",
+                    done: "Done",
+                    blocked: "Blocked"
+                },
+                add: "Add a new task...",
+                create: "Create"
+            },
+            quickAdd: "Quick Add",
+            upcoming: "Upcoming Goals",
+            noActivePlans: "No active plans",
+            noPlanGen: "No weekly plan generated",
+            aiSummary: "AI Summary",
+            mindmap: {
+                reset: "Reset Layout",
+                legend: "Legend",
+                task: "Task",
+                subtask: "Subtask",
+                resource: "Resource",
+                root: "Root",
+            },
+            analytics: {
+                studyHours: "Study Hours",
+                tasksCompleted: "Tasks Completed",
+                focusDistribution: "Focus Distribution",
+                totalHours: "Total Hours",
+                tasksDone: "Tasks Done",
+                heatmap: "Activity Heatmap"
+            },
+            onboarding: {
+                title: "Welcome to AI Learning Planner",
+                step1: {
+                    title: "1. Quick Add Tasks",
+                    desc: "Type naturally like \"Math HW ch 5 due tomorrow\" or upload files."
+                },
+                step2: {
+                    title: "2. Let AI Plan",
+                    desc: "Click 📅 to have AI automatically find the best time slots."
+                },
+                step3: {
+                    title: "3. Focus & Learn",
+                    desc: "Use the Pomodoro timer and AI tools to crush your tasks."
+                }
+            }
         }
     }
 };
