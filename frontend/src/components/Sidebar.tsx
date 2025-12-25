@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { getChats, logout, isLoggedIn } from "../lib/api";
+import { getChats, logout, isLoggedIn, plannerList } from "../lib/api";
 import { useLanguage } from '../lib/LanguageContext';
 
 interface Chat {
@@ -16,10 +16,21 @@ export default function Sidebar() {
   const p = useLocation().pathname
   const [isToggled, setIsToggled] = useState(false)
   const [chats, setChats] = useState<ChatsResponse | null>(null);
+  const [hasActiveTasks, setHasActiveTasks] = useState(false);
   const { language, setLanguage, t } = useLanguage();
 
   useEffect(() => {
-    getChats().then(data => setChats(data));
+    if (isLoggedIn()) {
+      getChats().then(data => setChats(data));
+
+      // Check for active planner tasks
+      plannerList().then(res => {
+        if (res.ok && res.tasks) {
+          const active = res.tasks.some(task => task.status !== 'done');
+          setHasActiveTasks(active);
+        }
+      }).catch(() => { });
+    }
   }, []);
 
   const b = (t: string) => `p-2 rounded-xl duration-300 transition-all ${p === t ? 'text-white bg-stone-800' : 'hover:bg-stone-900 hover:text-stone-200'}`
@@ -67,7 +78,7 @@ export default function Sidebar() {
               <path fillRule="evenodd" d="M9.013 19.9a.75.75 0 0 1 .877-.597 11.319 11.319 0 0 0 4.22 0 .75.75 0 1 1 .28 1.473 12.819 12.819 0 0 1-4.78 0 .75.75 0 0 1-.597-.876ZM9.754 22.344a.75.75 0 0 1 .824-.668 13.682 13.682 0 0 0 2.844 0 .75.75 0 1 1 .156 1.492 15.156 15.156 0 0 1-3.156 0 .75.75 0 0 1-.668-.824Z" clipRule="evenodd" />
             </svg>
           </Link>
-          <Link to='/planner' className={b('/planner')} title={t.sidebar.planner}>
+          <Link to='/planner' className={`${b('/planner')} ${hasActiveTasks ? 'animate-blink' : ''}`} title={t.sidebar.planner}>
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
               <path fillRule="evenodd" d="M7.5 5.25a3 3 0 0 1 3-3h3a3 3 0 0 1 3 3v.205c.933.085 1.857.197 2.774.334 1.454.218 2.476 1.483 2.476 2.917v3.033c0 1.211-.734 2.352-1.936 2.752A24.726 24.726 0 0 1 12 15.75c-2.73 0-5.357-.442-7.814-1.259-1.202-.4-1.936-1.541-1.936-2.752V8.706c0-1.434 1.022-2.7 2.476-2.917A48.814 48.814 0 0 1 7.5 5.455V5.25Zm7.5 0v.09a49.488 49.488 0 0 0-6 0v-.09a1.5 1.5 0 0 1 1.5-1.5h3a1.5 1.5 0 0 1 1.5 1.5Zm-3 8.25a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Z" clipRule="evenodd" fill="currentColor" />
               <path d="M3 18.4v-2.796a4.3 4.3 0 0 0 .713.31A26.226 26.226 0 0 0 12 17.25c2.892 0 5.68-.468 8.287-1.335.252-.084.49-.189.713-.311V18.4c0 1.452-1.047 2.728-2.523 2.923-2.12.282-4.282.427-6.477.427a49.19 49.19 0 0 1-6.477-.427C4.047 21.128 3 19.852 3 18.4Z" fill="currentColor" />
