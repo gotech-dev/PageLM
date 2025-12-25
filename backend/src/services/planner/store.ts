@@ -2,6 +2,19 @@ import { query, queryOne } from "../../utils/database/mysql"
 import crypto from "crypto"
 import { Task, TaskFile, Slot, PlanPolicy } from "./types"
 
+// Self-healing schema: Add materials column if missing
+async function ensureSchema() {
+    try {
+        const rows = await query(`SHOW COLUMNS FROM planner_tasks LIKE 'materials'`) as any[];
+        if (rows.length === 0) {
+            await query(`ALTER TABLE planner_tasks ADD COLUMN materials JSON AFTER source_page`);
+        }
+    } catch (e: any) {
+        console.warn("[planner.store] could not ensure materials column", e.message);
+    }
+}
+ensureSchema();
+
 // Convert ISO datetime to MySQL datetime format (with default fallback)
 function toMySQLDateTime(isoDate: string | null | undefined): string {
     // Default to 7 days from now if no date provided
@@ -37,13 +50,14 @@ export async function createTask(userId: string, t: Omit<Task, "id" | "createdAt
 
     await query(
         `INSERT INTO planner_tasks 
-     (id, user_id, course, title, type, notes, due_at, est_mins, priority, status, steps, tags, rubric, source_kind, source_ref, source_page)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     (id, user_id, course, title, type, notes, due_at, est_mins, priority, status, steps, tags, rubric, source_kind, source_ref, source_page, materials)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
             id, userId, t.course || null, t.title, validateTaskType(t.type), t.notes || null,
             toMySQLDateTime(t.dueAt), t.estMins, t.priority, t.status || 'todo',
             JSON.stringify(t.steps || []), JSON.stringify(t.tags || []),
-            t.rubric || null, t.source?.kind || null, t.source?.ref || null, t.source?.page || null
+            t.rubric || null, t.source?.kind || null, t.source?.ref || null, t.source?.page || null,
+            JSON.stringify(t.materials || {})
         ]
     )
 
@@ -112,7 +126,8 @@ export async function getTask(id: string): Promise<Task | null> {
             lastPlannedAt: row.updated_at
         } : undefined,
         metrics: metrics || undefined,
-        files
+        files,
+        materials: safeJSONParse(row.materials, {})
     }
 }
 
@@ -131,6 +146,7 @@ export async function updateTask(id: string, patch: Partial<Task>): Promise<Task
     if (patch.steps !== undefined) { fields.push('steps = ?'); values.push(JSON.stringify(patch.steps)) }
     if (patch.tags !== undefined) { fields.push('tags = ?'); values.push(JSON.stringify(patch.tags)) }
     if (patch.rubric !== undefined) { fields.push('rubric = ?'); values.push(patch.rubric) }
+    if (patch.materials !== undefined) { fields.push('materials = ?'); values.push(JSON.stringify(patch.materials)) }
 
     if (fields.length > 0) {
         values.push(id)

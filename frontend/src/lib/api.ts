@@ -424,7 +424,7 @@ export type PlannerEvent =
   | { type: "ready"; sid: string }
   | { type: "phase"; value: string }
   | { type: "plan.update"; taskId: string; slots: PlannerSlot[] }
-  | { type: "materials.chunk"; id: string; idx: number; total: number; more: boolean; encoding: string; data: string }
+  | { type: "materials.chunk"; id?: string; taskId: string; kind: string; idx?: number; total?: number; more?: boolean; encoding?: string; data: string }
   | { type: "materials.done"; id: string; total: number }
   | { type: "reminder"; text: string; at: number; taskId?: string; scheduledFor?: string }
   | { type: "daily.digest"; date: string; due: { id: string; title: string; dueAt: number }[]; sessions: number; message: string }
@@ -493,8 +493,9 @@ export async function plannerGetSuggestions() {
   })
 }
 
-export async function plannerMaterials(id: string, kind: "summary" | "studyGuide" | "flashcards" | "quiz") {
-  return req<{ ok: boolean; data: any }>(`${env.backend}/tasks/${encodeURIComponent(id)}/materials`, {
+export async function plannerMaterials(id: string, kind: "summary" | "studyGuide" | "flashcards" | "quiz", sid?: string) {
+  const url = `${env.backend}/tasks/${encodeURIComponent(id)}/materials${sid ? `?sid=${encodeURIComponent(sid)}` : ""}`
+  return req<{ ok: boolean; data: any }>(url, {
     method: "POST",
     headers: jsonHeaders({}),
     body: JSON.stringify({ kind })
@@ -502,7 +503,8 @@ export async function plannerMaterials(id: string, kind: "summary" | "studyGuide
 }
 
 export function connectPlannerStream(sid: string, onEvent: (ev: PlannerEvent) => void) {
-  const url = wsURL(`/ws/planner?sid=${encodeURIComponent(sid)}`)
+  const token = localStorage.getItem('auth_token')
+  const url = wsURL(`/ws/planner?sid=${encodeURIComponent(sid)}&token=${encodeURIComponent(token || "")}`)
   const ws = new WebSocket(url)
   ws.onmessage = (m) => {
     try {

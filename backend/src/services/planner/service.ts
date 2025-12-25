@@ -251,29 +251,47 @@ export class PlannerService {
         return updateTask(taskId, { plan: updatedPlan })
     }
 
-    async generateMaterials(taskId: string, req: MaterialsRequest): Promise<any> {
+    async generateMaterials(taskId: string, req: MaterialsRequest, onChunk?: (chunk: string) => void): Promise<any> {
         const task = await getTask(taskId)
         if (!task) throw new Error('Task not found')
 
         const content = `${task.title}\n${task.notes || ''}\nSteps: ${task.steps?.join(', ') || ''}`
 
+        let result: any
         switch (req.type) {
             case 'summary':
-                return this.generateSummary(content)
+                result = await this.generateSummary(content, onChunk)
+                break
             case 'studyGuide':
-                return this.generateStudyGuide(content, task)
+                result = await this.generateStudyGuide(content, task)
+                break
             case 'flashcards':
-                return this.generateFlashcards(content, task)
+                result = await this.generateFlashcards(content, task)
+                break
             case 'quiz':
-                return this.generateQuiz(content, task)
+                result = await this.generateQuiz(content, task)
+                break
             default:
                 throw new Error('Invalid material type')
         }
+
+        // Persist the result
+        const materials = task.materials || {}
+        materials[req.type] = result
+        await updateTask(taskId, { materials })
+        return result
     }
 
-    private async generateSummary(content: string): Promise<string> {
-        const prompt = `Create a clear, concise summary of this study material that highlights the key concepts and important points:`
-        const response = await handleAsk(prompt + '\n\n' + content)
+    private async generateSummary(content: string, onChunk?: (chunk: string) => void): Promise<string> {
+        const prompt = `Create a clear, concise summary of this study material.
+        Use professional GitHub-Flavored Markdown with headings, bold text, and lists.
+        For math, use LaTeX: $...$ for inline, $$...$$ for blocks.`
+
+        const response = await handleAsk({
+            q: prompt + '\n\n' + content,
+            jsonMode: false,
+            onChunk
+        })
         return response.answer
     }
 

@@ -55,6 +55,7 @@ export type Task = {
     tags?: string[]
     rubric?: string
     files?: TaskFile[]
+    materials?: Record<string, any>
 }
 
 export type Plan = {

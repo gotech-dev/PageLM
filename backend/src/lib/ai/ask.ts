@@ -48,7 +48,15 @@ Return ONLY a JSON-format Object with this exact structure:
 You are PolyPi AI, a helpful AI tutor. Provide direct, clear, and concise answers.
 For math formulas, use LaTeX notation: $...$ for inline (e.g., $x^2 + y^2 = r^2$), $$...$$ for display equations.
 `.trim()
-
+export const MARKDOWN_SYSTEM_PROMPT = `
+You are PolyPi AI, an advanced AI educational system. Provide deep, clear, and engaging learning materials.
+Use professional GitHub-Flavored Markdown:
+- Use clear headings (h2, h3)
+- Use bullet points and tables for structured data
+- Use bold/italic for emphasis
+- For math formulas, ALWAYS use LaTeX notation: $...$ for inline and $$...$$ for display equations.
+Do NOT use JSON formatting. Respond with direct, beautiful Markdown text.
+`.trim()
 
 export const BASE_SYSTEM_PROMPT = `
 Consider [[ ]] as section start/end and {{ }} as data places to insert;
@@ -319,6 +327,8 @@ type AskWithContextOptions = {
   systemPrompt?: string
   history?: HistoryMessage[]
   cacheScope?: string
+  onChunk?: (c: string) => void
+  jsonMode?: boolean
 }
 
 export async function askWithContext(opts: AskWithContextOptions): Promise<AskPayload> {
@@ -339,15 +349,23 @@ export async function askWithContext(opts: AskWithContextOptions): Promise<AskPa
   const messages: any[] = [{ role: "system", content: systemPrompt }]
   for (const msg of toConversationHistory(historyArr)) messages.push(msg)
 
+  const jsonMode = opts.jsonMode !== false
+
   messages.push({
     role: "user",
-    content: `Context:\n${ctx}\n\nQuestion:\n${safeQ}\n\nTopic:\n${topic}\n\nReturn only the JSON object.`
+    content: `Context:\n${ctx}\n\nQuestion:\n${safeQ}\n\nTopic:\n${topic}${jsonMode ? "\n\nReturn only the JSON object." : ""}`
   })
 
-  const res = await llm.call(messages as any)
-  const draft = toText(res).trim()
-  const jsonStr = extractFirstJsonObject(draft) || draft
-  const parsed = tryParse<any>(jsonStr)
+  let draft = ""
+  if (opts.onChunk) {
+    draft = await llm.stream(messages as any, opts.onChunk)
+  } else {
+    const res = await llm.call(messages as any)
+    draft = toText(res).trim()
+  }
+
+  const jsonStr = jsonMode ? (extractFirstJsonObject(draft) || draft) : ""
+  const parsed = jsonMode ? tryParse<any>(jsonStr) : null
 
   const out: AskPayload =
     parsed && typeof parsed === "object"
@@ -363,15 +381,17 @@ export async function askWithContext(opts: AskWithContextOptions): Promise<AskPa
 }
 
 export async function handleAsk(
-  q: string | { q: string; namespace?: string; history?: any[]; fastMode?: boolean },
+  q: string | { q: string; namespace?: string; history?: any[]; fastMode?: boolean; jsonMode?: boolean; onChunk?: (c: string) => void },
   ns?: string,
   k = 6,
   historyArg?: any[],
-  fastModeArg?: boolean
+  fastModeArg?: boolean,
+  onChunk?: (c: string) => void,
+  jsonMode?: boolean
 ): Promise<AskPayload> {
   if (typeof q === "object" && q !== null) {
-    const params = q
-    return handleAsk(params.q, params.namespace ?? ns, k, params.history ?? historyArg, params.fastMode ?? fastModeArg)
+    const params = q as any
+    return handleAsk(params.q, params.namespace ?? ns, k, params.history ?? historyArg, params.fastMode ?? fastModeArg, params.onChunk ?? onChunk, params.jsonMode ?? jsonMode)
   }
 
   const questionRaw = typeof q === "string" ? q : String(q ?? "")
@@ -398,13 +418,17 @@ export async function handleAsk(
 
 
   const topic = guessTopic(safeQ) || "General"
+  const defaultSystemPrompt = isFast ? FAST_SYSTEM_PROMPT : BASE_SYSTEM_PROMPT
+  const finalSystemPrompt = jsonMode === false ? MARKDOWN_SYSTEM_PROMPT : defaultSystemPrompt
 
   return askWithContext({
     question: questionRaw,
     context: ctx,
     topic,
     history: historyArg,
-    systemPrompt: isFast ? FAST_SYSTEM_PROMPT : BASE_SYSTEM_PROMPT,
-    cacheScope: isFast ? `fast:${nsFinal}` : `ans:${nsFinal}`
+    systemPrompt: finalSystemPrompt,
+    cacheScope: isFast ? `fast:${nsFinal}` : `ans:${nsFinal}`,
+    onChunk,
+    jsonMode: jsonMode !== false
   })
 }

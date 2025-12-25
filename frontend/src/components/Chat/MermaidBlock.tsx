@@ -38,32 +38,43 @@ function preprocessMermaid(code: string): string {
     // Remove markdown code fences
     cleaned = cleaned.replace(/^```mermaid\s*/i, "").replace(/```\s*$/i, "").trim();
 
-    // Replace single quotes in node IDs: A' -> A_p, A'C' -> A_pC_p
+    // Ensure it starts with a valid directive
+    if (!/^(graph|flowchart|sequenceDiagram|classDiagram|stateDiagram|erDiagram|gantt|pie|gitGraph|info)/i.test(cleaned)) {
+        cleaned = "graph TD\n" + cleaned;
+    }
+
+    // Replace single quotes in node IDs: A' -> A_p
     cleaned = cleaned.replace(/([A-Z])'/g, "$1_p");
 
-    // Wrap subgraph names with non-ASCII in quotes
+    // Fix arrow with label syntax variations
+    // Handle variants like: A -- label -> B, A - label -> B, A -- "label" --> B
+    cleaned = cleaned.replace(/(\w+)\s*-+["\s]*([^"->\n]+)["\s]*-+>\s*(\w+)/g, '$1 -->|$2| $3');
+
+    // Fix: A --- "label" --> B
+    cleaned = cleaned.replace(
+        /(\w+)\s*---\s*"([^"]+)"\s*-->\s*(\w+)/g,
+        '$1 -->|$2| $3'
+    );
+
+    // Standardize arrows: convert -> to --> strictly (Mermaid flowchart needs -->)
+    // Handle cases like A->B, A -> B, A-->B, etc.
+    cleaned = cleaned.replace(/(\w+)\s*-+>\s*(\w+)/g, '$1 --> $2');
+    cleaned = cleaned.replace(/\s+-+>\s+/g, " --> ");
+    cleaned = cleaned.replace(/\s+---+\s+/g, " --- ");
+
+    // Ensure subgraphs have quotes if they contain spaces or special chars
     cleaned = cleaned.replace(
         /^(\s*subgraph\s+)([^\n"]+)$/gm,
         (_, prefix, name) => {
             const trimmed = name.trim();
-            if (/[^\x00-\x7F]/.test(trimmed)) {
+            if (/[^\w]/.test(trimmed)) {
                 return `${prefix}"${trimmed}"`;
             }
             return `${prefix}${trimmed}`;
         }
     );
 
-    // Fix arrow with label syntax: A --- "label" --> B should be A -->|label| B
-    cleaned = cleaned.replace(
-        /(\w+)\s*---\s*"([^"]+)"\s*-->\s*(\w+)/g,
-        '$1 -->|$2| $3'
-    );
-
-    // Fix standalone --- arrows (should be ---)
-    cleaned = cleaned.replace(/\s+---\s+/g, " --- ");
-    cleaned = cleaned.replace(/\s+-->\s+/g, " --> ");
-
-    // Remove LaTeX syntax completely
+    // Remove or fix LaTeX syntax that breaks Mermaid
     cleaned = cleaned.replace(/\$[^$]*\$/g, (match) => {
         return match
             .replace(/\$/g, "")
@@ -74,6 +85,10 @@ function preprocessMermaid(code: string): string {
             .replace(/[{}^_]/g, "");
     });
 
+    // Replace common math symbols that break mermaid labels if not in quotes
+    // Note: Mermaid labels in [] or () handle most things, but bare IDs don't.
+    // This mostly helps if AI uses them in ways that break parsing.
+
     return cleaned;
 }
 
@@ -83,7 +98,7 @@ function preprocessMermaid(code: string): string {
 function toReadableFormat(code: string): string {
     // Clean up and format nicely
     const lines = code.split('\n').map(l => l.trim()).filter(Boolean);
-    let result: string[] = [];
+    const result: string[] = [];
     let indent = 0;
 
     for (const line of lines) {
@@ -94,7 +109,7 @@ function toReadableFormat(code: string): string {
         const prefix = '  '.repeat(indent);
 
         // Format arrows nicely
-        let formatted = line
+        const formatted = line
             .replace(/-->/g, '  →  ')
             .replace(/---/g, '  —  ')
             .replace(/\[([^\]]+)\]/g, '[$1]')

@@ -1,4 +1,5 @@
 import { authMiddleware, AuthRequest } from "../../middleware/auth"
+import jwt from 'jsonwebtoken'
 import { ensureUserExists } from "../../services/user/sync"
 import { plannerService } from "../../services/planner/service"
 import { CreateTaskRequest, UpdateTaskRequest, PlannerGenerateRequest, MaterialsRequest } from "../../services/planner/types"
@@ -15,11 +16,38 @@ export function plannerRoutes(app: any) {
     app.ws("/ws/planner", (ws: any, req: any) => {
         const u = new URL(req.url, "http://localhost")
         const sid = u.searchParams.get("sid") || "default"
-        let set = rooms.get(sid)
-        if (!set) { set = new Set(); rooms.set(sid, set) }
-        set.add(ws)
-        ws.send(JSON.stringify({ type: "ready", sid }))
-        ws.on("close", () => { set!.delete(ws); if (set!.size === 0) rooms.delete(sid) })
+        const token = u.searchParams.get("token")
+
+        let userId = "default"
+        if (token) {
+            try {
+                const secret = process.env.JWT_SECRET || ""
+                const decoded = jwt.verify(token, secret) as any
+                userId = decoded.sub || decoded.userId || decoded.id || "default"
+            } catch (e) {
+                console.warn("[planner] WS auth failed", e)
+            }
+        }
+
+        // Map to userId room for broadcasting from routes
+        let userSet = rooms.get(userId)
+        if (!userSet) { userSet = new Set(); rooms.set(userId, userSet) }
+        userSet.add(ws)
+
+        // Also map to sid for session-specific stuff if needed
+        let sidSet = rooms.get(sid)
+        if (!sidSet) { sidSet = new Set(); rooms.set(sid, sidSet) }
+        sidSet.add(ws)
+        console.log(`[planner] WebSocket connected: sid=${sid}, userId=${userId}`)
+
+        ws.send(JSON.stringify({ type: "ready", sid, userId }))
+
+        ws.on("close", () => {
+            userSet?.delete(ws)
+            sidSet?.delete(ws)
+            if (userSet?.size === 0) rooms.delete(userId)
+            if (sidSet?.size === 0) rooms.delete(sid)
+        })
     })
 
     // Create task
@@ -194,13 +222,30 @@ export function plannerRoutes(app: any) {
     app.post("/tasks/:id/materials", authMiddleware, async (req: AuthRequest, res: any) => {
         try {
             const id = req.params.id
-            const request: MaterialsRequest = { type: req.body?.type || "summary" }
-            // emitToAll(rooms.get(req.userId!), { type: "phase", value: "assist" })
-            const materials = await plannerService.generateMaterials(id, request)
+            const request: MaterialsRequest = { type: req.body?.type || req.body?.kind || "summary" }
+            const userId = req.userId!
+            const sid = req.query?.sid as string
+            console.log(`[planner] Materials request for task ${id} by user ${userId} (sid: ${sid})`)
 
-            // await emitLarge(rooms.get(req.userId!), "materials", { taskId: id, type: request.type, data: materials }, { gzip: true }) 
-            // emitToAll(rooms.get(req.userId!), { type: "done", taskId: id })
+            // Start processing - notify user via WS
+            // Broadcast to all user's sessions AND the specific session if sid is provided
+            const targetSockets = new Set<any>()
+            rooms.get(userId)?.forEach(s => targetSockets.add(s))
+            if (sid) rooms.get(sid)?.forEach(s => targetSockets.add(s))
 
+            emitToAll(targetSockets, { type: "phase", value: "preparing", taskId: id })
+
+            const materials = await plannerService.generateMaterials(id, request, (chunk: string) => {
+                // Stream chunks back via WebSocket
+                emitToAll(targetSockets, {
+                    type: "materials.chunk",
+                    taskId: id,
+                    kind: request.type,
+                    data: chunk
+                })
+            })
+
+            emitToAll(targetSockets, { type: "done", taskId: id })
             res.send({ ok: true, data: materials })
         } catch (e: unknown) {
             const error = e as Error

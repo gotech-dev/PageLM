@@ -42,9 +42,21 @@ export default function Planner() {
 
     // WebSocket & Notification logic
     useEffect(() => {
+        const m: Record<string, any> = {}
+        tasks.forEach(t => {
+            if (t.materials) m[t.id] = { ...(m[t.id] || {}), ...t.materials }
+        })
+        setMaterials(prev => ({ ...prev, ...m }))
+    }, [tasks])
+
+    useEffect(() => {
         wsRef.current = connectPlannerStream(sid, (ev: PlannerEvent) => {
+            if (ev.type === "ready") {
+                console.log("[Planner] WebSocket Ready:", ev)
+                plannerList().then(t => setTasks(t.tasks)).catch(() => { })
+            }
             if (ev.type === "plan.update") {
-                setTasks(t => t.map(x => x.id === ev.taskId ? { ...x, plan: { ...(x as any).plan, slots: ev.slots } } as any : x))
+                setTasks(t => t.map(x => x.id === ev.taskId ? { ...x, plan: { ...((x as PlannerTask).plan || {}), slots: ev.slots } } as PlannerTask : x))
                 plannerWeekly(false).then(wp => setPlan(wp.plan)).catch(() => { })
             }
             if (ev.type === "task.created") {
@@ -86,11 +98,33 @@ export default function Planner() {
             if (ev.type === "session.ended") {
                 addNotification("success", `Session completed: ${ev.session.minutesWorked} minutes`)
             }
+            if (ev.type === "phase" && ev.value === "preparing") {
+                setLoadingStates(prev => ({ ...prev, [ev.taskId]: { ...prev[ev.taskId], summary: true } }))
+                setMaterials(m => ({ ...m, [ev.taskId]: { ...(m[ev.taskId] || {}), summary: "" } }))
+            }
+            if (ev.type === "done") {
+                setLoadingStates(prev => ({ ...prev, [ev.taskId]: { ...prev[ev.taskId], summary: false } }))
+            }
             if (ev.type === "materials.chunk") {
-                setMaterials(m => ({ ...m, _chunks: [...(m._chunks || []), ev] }))
+                // ev.taskId, ev.kind (summary/studyGuide...), ev.data
+                setMaterials(m => {
+                    const taskMats = m[ev.taskId] || {}
+                    const currentKindData = taskMats[ev.kind] || ""
+                    const newData = typeof currentKindData === 'string'
+                        ? currentKindData + ev.data
+                        : ev.data
+
+                    return {
+                        ...m,
+                        [ev.taskId]: {
+                            ...taskMats,
+                            [ev.kind]: newData
+                        }
+                    }
+                })
             }
         })
-        return () => { try { wsRef.current?.close() } catch { } }
+        return () => { try { wsRef.current?.close() } catch { /* ignore */ } }
     }, [sid])
 
     const addNotification = (type: string, message: string) => {
@@ -108,10 +142,14 @@ export default function Planner() {
     }, [])
 
     const reload = async () => {
-        const res = await plannerList()
-        setTasks(res.tasks)
-        const wp = await plannerWeekly(false)
-        setPlan(wp.plan)
+        try {
+            const res = await plannerList()
+            setTasks(res.tasks)
+            const wp = await plannerWeekly(false)
+            setPlan(wp.plan)
+        } catch (error) {
+            console.error("Reload error:", error)
+        }
     }
 
     useEffect(() => { reload() }, [])
@@ -171,18 +209,27 @@ export default function Planner() {
 
     const gen = async (id: string, kind: "summary" | "studyGuide" | "flashcards" | "quiz") => {
         setLoadingStates(prev => ({ ...prev, [id]: { ...prev[id], [kind]: true } }))
+        // Initialize with empty string so the UI container shows up immediately for streaming
+        setMaterials(m => ({ ...m, [id]: { ...(m[id] || {}), [kind]: "" } }))
         try {
-            const { data } = await plannerMaterials(id, kind)
+            console.log(`[Planner] Requesting ${kind} for ${id} (sid: ${sid})`)
+            const res = await plannerMaterials(id, kind, sid)
+            console.log(`[Planner] Received response for ${kind}:`, res)
+            const { data } = res
             setMaterials(m => ({ ...m, [id]: { ...(m[id] || {}), [kind]: data } }))
+        } catch (error) {
+            console.error(`[Planner] gen error (${kind}):`, error)
+            addNotification("error", `AI failed: ${(error as any)?.message || 'Unknown error'}`)
         } finally {
             setLoadingStates(prev => ({ ...prev, [id]: { ...prev[id], [kind]: false } }))
         }
     }
 
+
     const onUpload = async (id: string, file: File) => {
         try {
             await plannerUploadFiles(id, [file])
-        } catch (e) {
+        } catch (_e) {
             addNotification("error", "Failed to upload file")
         }
     }
@@ -190,7 +237,7 @@ export default function Planner() {
     const deleteFile = async (taskId: string, fileId: string) => {
         try {
             await plannerDeleteFile(taskId, fileId)
-        } catch (e) {
+        } catch (_e) {
             addNotification("error", "Failed to delete file")
         }
     }
@@ -271,9 +318,9 @@ export default function Planner() {
 
                 {/* View Switch */}
                 {view === 'overview' && (
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
+                    <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 h-full">
                         {/* Main Dashboard Column */}
-                        <div className="lg:col-span-2 space-y-6">
+                        <div className="lg:col-span-3 space-y-6">
                             <FocusTimer />
 
                             <TodayFocus
@@ -284,7 +331,14 @@ export default function Planner() {
 
                             {/* Detailed Task List */}
                             <div className="mt-8">
-                                <h3 className="text-sm font-medium text-stone-400 mb-4">{t.planner.tasks.all}</h3>
+                                <div className="flex items-center justify-between mb-4">
+                                    <h3 className="text-sm font-bold text-violet-400 uppercase tracking-widest">
+                                        DANH SÁCH NHIỆM VỤ (AI-POWERED) 🚀
+                                    </h3>
+                                    <span className="text-[10px] text-stone-600 bg-zinc-900 px-2 py-1 rounded border border-zinc-800 font-mono">
+                                        SID: {sid}
+                                    </span>
+                                </div>
                                 <div className="space-y-3">
                                     {tasks.length === 0 && (
                                         <div className="p-8 rounded-xl border border-zinc-800 bg-zinc-900/10 text-center space-y-6">
@@ -323,7 +377,7 @@ export default function Planner() {
                                                     <span>{tsk.dueAt ? fmtTime(tsk.dueAt) : t.planner.tasks.noDue}</span>
                                                     <span>·</span>
                                                     <span>{tsk.estMins}{t.planner.tasks.mins}</span>
-                                                    {tsk.files && tsk.files.length > 0 && <span>· {tsk.files.length} {t.planner.tasks.files}</span>}
+                                                    {tsk.files && tsk.files.length > 0 && <span>· {t.planner.tasks.files}</span>}
                                                 </div>
 
                                                 {/* Files Display */}
@@ -339,11 +393,81 @@ export default function Planner() {
                                                 )}
 
                                                 {/* AI Materials Display */}
-                                                {materials[tsk.id]?.summary && (
-                                                    <div className="ml-4 mt-2 text-xs text-zinc-400 bg-zinc-900/50 p-4 rounded border border-zinc-800">
-                                                        <div className="font-semibold text-violet-400 mb-2">{t.planner.aiSummary}:</div>
-                                                        <div className="prose prose-sm prose-invert max-w-none text-stone-300">
-                                                            <MarkdownView md={typeof materials[tsk.id].summary === 'string' ? materials[tsk.id].summary : (materials[tsk.id].summary.answer || '')} />
+                                                {(materials[tsk.id]?.summary !== undefined || loadingStates[tsk.id]?.summary) && (
+                                                    <div className="mt-8 w-[calc(100%+6rem)] -ml-12 -mr-12 animate-in fade-in slide-in-from-top-4 duration-700">
+                                                        <div className="relative group/ai">
+                                                            {/* Rainbow Border Gradient */}
+                                                            <div className="absolute -inset-[1px] bg-gradient-to-r from-violet-600 via-fuchsia-500 to-violet-600 rounded-3xl blur-[2px] opacity-20 group-hover/ai:opacity-40 transition duration-1000 animate-pulse"></div>
+
+                                                            <div className="relative bg-zinc-950/90 backdrop-blur-3xl p-10 rounded-3xl border border-white/5 shadow-[0_30px_60px_rgba(0,0,0,0.6)] overflow-hidden">
+                                                                {/* Decorative logic lights */}
+                                                                <div className="absolute top-0 right-0 w-80 h-80 bg-violet-600/10 blur-[120px] rounded-full -mr-32 -mt-32"></div>
+                                                                <div className="absolute bottom-0 left-0 w-80 h-80 bg-fuchsia-600/10 blur-[120px] rounded-full -ml-32 -mb-32"></div>
+
+                                                                <div className="flex items-center justify-between mb-8 pb-4 border-b border-white/5">
+                                                                    <div className="flex items-center gap-4">
+                                                                        <div className="flex items-center justify-center w-10 h-10 rounded-2xl bg-gradient-to-br from-violet-500 to-fuchsia-600 shadow-lg shadow-violet-500/20">
+                                                                            <span className="text-white text-sm">🧠</span>
+                                                                        </div>
+                                                                        <div className="space-y-0.5">
+                                                                            <h4 className="text-base font-black tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white via-violet-200 to-stone-400">
+                                                                                {t.planner.aiSummary}
+                                                                            </h4>
+                                                                            <div className="flex items-center gap-2">
+                                                                                <span className="flex h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]"></span>
+                                                                                <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest">PolyPi AI Core v2.0</p>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+
+                                                                    <div className="flex items-center gap-3">
+                                                                        {loadingStates[tsk.id]?.summary && (
+                                                                            <div className="flex items-center gap-3 px-4 py-2 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-md">
+                                                                                <div className="flex gap-1.5">
+                                                                                    <div className="w-2 h-2 bg-violet-400 rounded-full animate-bounce [animation-duration:0.8s] [animation-delay:-0.3s]"></div>
+                                                                                    <div className="w-2 h-2 bg-fuchsia-400 rounded-full animate-bounce [animation-duration:0.8s] [animation-delay:-0.15s]"></div>
+                                                                                    <div className="w-2 h-2 bg-violet-400 rounded-full animate-bounce [animation-duration:0.8s]"></div>
+                                                                                </div>
+                                                                                <span className="text-[10px] text-white/70 font-black uppercase tracking-widest">Thinking</span>
+                                                                            </div>
+                                                                        )}
+                                                                        <button className="p-2 rounded-xl bg-white/5 text-stone-400 hover:text-white transition-colors border border-white/5">
+                                                                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg>
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+
+                                                                <div className="prose prose-invert max-w-none text-zinc-300 leading-relaxed text-sm">
+                                                                    {materials[tsk.id]?.summary || loadingStates[tsk.id]?.summary ? (
+                                                                        <MarkdownView md={(() => {
+                                                                            const data = materials[tsk.id]?.summary;
+                                                                            if (!data) return "";
+                                                                            if (typeof data === 'string') {
+                                                                                if (data.trim().startsWith('{')) {
+                                                                                    try {
+                                                                                        const p = JSON.parse(data);
+                                                                                        return p.answer || p.content || data;
+                                                                                    } catch { return data; }
+                                                                                }
+                                                                                return data;
+                                                                            }
+                                                                            return data.answer || data.content || "";
+                                                                        })()} />
+                                                                    ) : (
+                                                                        <div className="flex flex-col items-center py-20 text-stone-700 gap-6">
+                                                                            <div className="relative">
+                                                                                <div className="w-16 h-16 rounded-full border-2 border-stone-900"></div>
+                                                                                <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-violet-500 animate-spin"></div>
+                                                                                <div className="absolute inset-2 rounded-full border-2 border-transparent border-t-fuchsia-500 animate-spin [animation-duration:1.5s]"></div>
+                                                                            </div>
+                                                                            <div className="text-center">
+                                                                                <p className="text-xs font-bold uppercase tracking-[0.2em] text-stone-600 mb-1">Architecting Knowledge</p>
+                                                                                <p className="italic text-[10px] text-stone-800">Hang tight, we're building something great...</p>
+                                                                            </div>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 )}

@@ -134,67 +134,64 @@ export default function ExamLabs() {
   // --- UI: Exam List ---
   if (!activeExam) {
     return (
-  <div className="min-h-screen w-full px-4 lg:pl-28 lg:pr-4">
-    <div className="max-w-5xl mx-auto pt-10 pb-14">
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => navigate(-1)}
-            className="p-2 rounded-xl bg-stone-950 border border-zinc-800 hover:bg-stone-900 transition-colors"
-            aria-label="Back"
-          >
-            <svg
-              viewBox="0 0 24 24"
-              className="size-5 text-stone-300"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M15.75 19.5 8.25 12l7.5-7.5"
-              />
-            </svg>
-          </button>
-          <h1 className="text-2xl font-semibold text-white">Exam Labs</h1>
-        </div>
-        <div className="px-3 py-1 rounded-full bg-gradient-to-r from-sky-500/20 to-blue-500/20 border border-sky-500/30 text-sky-300 text-xs font-medium">
-          BETA
-        </div>
-      </div>
-
-      {loadingExams && <LoadingIndicator label="Loading exams…" />}
-
-      <div className="grid gap-6">
-        {exams.map((ex) => (
-          <div
-            key={ex.id}
-            onClick={() => start(ex.id)}
-            className="group rounded-2xl bg-stone-950 border border-zinc-800 p-5 cursor-pointer hover:border-sky-500/50 transition-all duration-300 hover:shadow-lg hover:shadow-sky-500/10"
-          >
-            <div className="flex items-center justify-between mb-2">
-              <div className="text-lg font-semibold text-white">
-                {ex.name}
-              </div>
-              <div className="px-3 py-1 rounded-full bg-sky-900/30 text-sky-300 text-xs font-medium">
-                {ex.sections.length} sections
-              </div>
-            </div>
-            <div className="text-sm text-stone-400">
-              Click to start this exam
+      <div className="min-h-screen w-full px-4 lg:pl-28 lg:pr-4">
+        <div className="max-w-5xl mx-auto pt-10 pb-14">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => navigate(-1)}
+                className="p-2 rounded-xl bg-stone-950 border border-zinc-800 hover:bg-stone-900 transition-colors"
+                aria-label="Back"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  className="size-5 text-stone-300"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M15.75 19.5 8.25 12l7.5-7.5"
+                  />
+                </svg>
+              </button>
+              <h1 className="text-2xl font-semibold text-white">Exam Labs</h1>
             </div>
           </div>
-        ))}
-      </div>
 
-      {!loadingExams && !exams.length && (
-        <div className="mt-16 text-center text-stone-400">
-          No exams available.
+          {loadingExams && <LoadingIndicator label="Loading exams…" />}
+
+          <div className="grid gap-6">
+            {exams.map((ex) => (
+              <div
+                key={ex.id}
+                onClick={() => start(ex.id)}
+                className="group rounded-2xl bg-stone-950 border border-zinc-800 p-5 cursor-pointer hover:border-sky-500/50 transition-all duration-300 hover:shadow-lg hover:shadow-sky-500/10"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-lg font-semibold text-white">
+                    {ex.name}
+                  </div>
+                  <div className="px-3 py-1 rounded-full bg-sky-900/30 text-sky-300 text-xs font-medium">
+                    {ex.sections.length} sections
+                  </div>
+                </div>
+                <div className="text-sm text-stone-400">
+                  Click to start this exam
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {!loadingExams && !exams.length && (
+            <div className="mt-16 text-center text-stone-400">
+              No exams available.
+            </div>
+          )}
         </div>
-      )}
-    </div>
-  </div>
+      </div>
     )
   }
 

@@ -10,7 +10,6 @@ export const translations = {
             save: "Lưu",
             edit: "Sửa",
             delete: "Xóa",
-            beta: "BETA",
             clickOrDrop: "Nhấp hoặc kéo thả",
             pleaseWait: "Vui lòng đợi...",
         },
@@ -314,6 +313,18 @@ export const translations = {
                 recommendation: "Đề xuất",
                 add: "Thêm"
             }
+        },
+        auth: {
+            loginTitle: "Chào mừng trở lại",
+            emailLabel: "Email",
+            passwordLabel: "Mật khẩu",
+            loginButton: "Đăng nhập",
+            loggingIn: "Đang đăng nhập...",
+            emailPlaceholder: "email@cua-ban.com",
+            passwordPlaceholder: "••••••••",
+            copyright: "© 2024 PolyPi. Bảo lưu mọi quyền.",
+            loginFailed: "Đăng nhập thất bại",
+            subtitle: "PolyPi — Trí tuệ dẫn lối, tri thức vươn xa"
         }
     },
     en: {
@@ -326,7 +337,6 @@ export const translations = {
             save: "Save",
             edit: "Edit",
             delete: "Delete",
-            beta: "BETA",
             clickOrDrop: "Click or drop",
             pleaseWait: "Please wait...",
         },
@@ -630,6 +640,18 @@ export const translations = {
                 recommendation: "Suggestion",
                 add: "Add"
             }
+        },
+        auth: {
+            loginTitle: "Welcome Back",
+            emailLabel: "Email",
+            passwordLabel: "Password",
+            loginButton: "Login",
+            loggingIn: "Logging in...",
+            emailPlaceholder: "your@email.com",
+            passwordPlaceholder: "••••••••",
+            copyright: "© 2024 PolyPi. All rights reserved.",
+            loginFailed: "Login failed",
+            subtitle: "PolyPi — Intelligence Guides, Knowledge Beyond"
         }
     }
 };
