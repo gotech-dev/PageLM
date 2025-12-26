@@ -76,7 +76,8 @@ export function debateRoutes(app: any) {
                 });
             }
 
-            const session = await createDebateSession(topic.trim(), position);
+            const userId = req.userId || req.user?.id || 'anonymous';
+            const session = await createDebateSession(userId, topic.trim(), position);
 
             res.json({
                 ok: true,
@@ -205,7 +206,8 @@ export function debateRoutes(app: any) {
 
     app.get("/debates", async (req: any, res: any) => {
         try {
-            const sessions = await listDebateSessions();
+            const userId = req.userId || req.user?.id || 'anonymous';
+            const sessions = await listDebateSessions(userId);
             res.json({
                 ok: true,
                 debates: sessions.map((s) => ({

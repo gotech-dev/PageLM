@@ -1,18 +1,17 @@
 import path from 'path'
-import { fileURLToPath } from 'url'
 
-// Load .env from backend directory (relative to this file's location)
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = path.dirname(__filename)
-const envPath = path.resolve(__dirname, '../../.env')
+// Load .env from backend directory (using process.cwd() for CommonJS compatibility)
+const backendEnvPath = path.resolve(process.cwd(), 'backend/.env')
+const rootEnvPath = path.resolve(process.cwd(), '.env')
 
 try {
-  process.loadEnvFile(envPath)
-  console.log('[env] Loaded environment from:', envPath)
+  process.loadEnvFile(backendEnvPath)
+  console.log('[env] Loaded environment from:', backendEnvPath)
 } catch (error) {
-  console.warn('[env] Could not load .env from', envPath, '- trying cwd fallback')
+  console.warn('[env] Could not load .env from', backendEnvPath, '- trying root fallback')
   try {
-    process.loadEnvFile(path.resolve(process.cwd(), '.env'))
+    process.loadEnvFile(rootEnvPath)
+    console.log('[env] Loaded environment from:', rootEnvPath)
   } catch {
     console.warn('[env] No .env file found')
   }
