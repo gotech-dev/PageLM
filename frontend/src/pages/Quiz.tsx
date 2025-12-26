@@ -4,15 +4,16 @@ import { quizStart, connectQuizStream, QuizEvent, err as getErr } from "../lib/a
 import LoadingIndicator from "../components/Chat/LoadingIndicator";
 import { useLanguage } from "../lib/LanguageContext";
 
-type Question = {
+export type Question = {
   question: string;
   options: string[];
   correct: number;
   explanation: string;
   hint: string;
+  imageHtml?: string;
 };
 
-type UA = {
+export type UA = {
   questionId: number;
   selectedAnswer: number;
   correct: boolean;

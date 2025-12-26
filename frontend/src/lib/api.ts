@@ -415,6 +415,8 @@ export type PlannerTask = {
   tags?: string[];
   files?: { id: string; filename: string; originalName: string; mimeType: string; size: number; uploadedAt: number }[];
   steps?: string[];
+  materials?: Record<string, any>;
+  plan?: { slots: PlannerSlot[] };
 };
 
 export type PlannerSlot = { id: string; taskId: string; start: number; end: number; kind: "focus" | "review" | "buffer"; done?: boolean }
@@ -422,7 +424,7 @@ export type WeeklyPlan = { days: { date: string; slots: PlannerSlot[] }[] }
 
 export type PlannerEvent =
   | { type: "ready"; sid: string }
-  | { type: "phase"; value: string }
+  | { type: "phase"; value: string; taskId?: string }
   | { type: "plan.update"; taskId: string; slots: PlannerSlot[] }
   | { type: "materials.chunk"; id?: string; taskId: string; kind: string; idx?: number; total?: number; more?: boolean; encoding?: string; data: string }
   | { type: "materials.done"; id: string; total: number }
@@ -439,7 +441,7 @@ export type PlannerEvent =
   | { type: "session.ended"; session: { id: string; endedAt: string; minutesWorked: number; completed: boolean; status: string } }
   | { type: "weekly.update"; plan: WeeklyPlan }
   | { type: "slot.update"; taskId: string; slotId: string; done: boolean; skip: boolean }
-  | { type: "done" };
+  | { type: "done"; taskId?: string };
 
 export async function plannerIngest(text: string) {
   return req<{ ok: boolean; task: PlannerTask }>(`${env.backend}/tasks/ingest`, {

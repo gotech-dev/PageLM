@@ -12,6 +12,7 @@ export const translations = {
             delete: "Xóa",
             clickOrDrop: "Nhấp hoặc kéo thả",
             pleaseWait: "Vui lòng đợi...",
+            beta: "Beta",
         },
         sidebar: {
             newChat: "Cuộc trò chuyện mới",
@@ -339,6 +340,7 @@ export const translations = {
             delete: "Delete",
             clickOrDrop: "Click or drop",
             pleaseWait: "Please wait...",
+            beta: "Beta",
         },
         sidebar: {
             newChat: "New Chat",
