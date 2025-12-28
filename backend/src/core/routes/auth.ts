@@ -263,7 +263,7 @@ export function authRoutes(app: any) {
             )
 
             // Redirect to frontend with token
-            const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5174'
+            const frontendUrl = process.env.FRONTEND_URL || process.env.VITE_FRONTEND_URL || 'http://localhost:5174'
             const redirectPath = redirect || '/'
 
             // Build redirect URL with token in query
