@@ -14,7 +14,8 @@ async function authenticateUser(email: string, password: string) {
         email: string
         name: string
         password?: string
-    }>('SELECT id, email, name, password FROM users WHERE email = ?', [email])
+        credits?: number
+    }>('SELECT id, email, name, password, credits FROM users WHERE email = ?', [email])
 
     if (users.length === 0) {
         return null
@@ -33,7 +34,7 @@ async function authenticateUser(email: string, password: string) {
         return null
     }
 
-    return { id: user.id, email: user.email, name: user.name }
+    return { id: user.id, email: user.email, name: user.name, credits: user.credits ?? 0 }
 }
 
 export function authRoutes(app: any) {
@@ -72,7 +73,8 @@ export function authRoutes(app: any) {
                 user: {
                     id: user.id,
                     email: user.email,
-                    name: user.name
+                    name: user.name,
+                    credits: user.credits ?? 0
                 }
             })
         } catch (e: unknown) {
@@ -130,7 +132,8 @@ export function authRoutes(app: any) {
                 user: {
                     id: userId,
                     email,
-                    name
+                    name,
+                    credits: 0
                 }
             })
         } catch (e: unknown) {
@@ -152,12 +155,25 @@ export function authRoutes(app: any) {
             const token = authHeader.substring(7)
             const decoded = jwt.verify(token, JWT_SECRET) as any
 
+            const userId = decoded.sub || decoded.userId || decoded.id
+            const users = await query<{ id: string; email: string; name: string; credits?: number }>(
+                'SELECT id, email, name, credits FROM users WHERE id = ? LIMIT 1',
+                [userId]
+            )
+
+            if (!users.length) {
+                return res.status(404).json({ error: 'User not found' })
+            }
+
+            const u = users[0]
+
             res.json({
                 ok: true,
                 user: {
-                    id: decoded.sub || decoded.userId || decoded.id,
-                    email: decoded.email,
-                    name: decoded.name
+                    id: u.id,
+                    email: u.email,
+                    name: u.name,
+                    credits: u.credits ?? 0
                 }
             })
         } catch (e: unknown) {

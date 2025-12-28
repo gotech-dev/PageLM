@@ -9,6 +9,8 @@ interface MySQLConfig {
     connectionLimit: number
     waitForConnections: boolean
     queueLimit: number
+    connectTimeout?: number
+    acquireTimeout?: number
 }
 
 const config: MySQLConfig = {

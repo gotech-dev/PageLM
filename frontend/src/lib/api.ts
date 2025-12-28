@@ -658,3 +658,14 @@ export async function analyzeDebate(debateId: string) {
 export function err(e: unknown) {
   return e instanceof Error ? e.message : String(e);
 }
+
+// Fetch current user info (including credits) using auth token
+export async function getCurrentUser() {
+  return req<{ ok: boolean; user: { id: string; email: string; name: string; credits?: number } }>(
+    `${env.backend}/auth/me`,
+    {
+      method: "GET",
+      headers: authHeaders(),
+    }
+  )
+}

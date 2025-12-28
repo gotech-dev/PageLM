@@ -1,3 +1,4 @@
+import '../src/config/env' // load .env for DB credentials
 import fs from 'fs'
 import path from 'path'
 import { query } from '../src/utils/database/mysql'
