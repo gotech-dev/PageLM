@@ -11,6 +11,7 @@ import NotFound from './pages/404.tsx'
 import PlannerPage from './pages/Planner'
 import Debate from './pages/Debate'
 import Login from './pages/Login'
+import SsoCallback from './pages/SsoCallback'
 import { LanguageProvider } from "./lib/LanguageContext";
 import "./index.css"
 
@@ -19,6 +20,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/sso-callback" element={<SsoCallback />} />
         <Route path="/" element={<App />}>
           <Route path="*" element={<NotFound />} />
           <Route index element={<Landing />} />
@@ -28,6 +30,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <Route path="planner" element={<PlannerPage />} />
           <Route path="debate" element={<Debate />} />
           <Route path="cards" element={<FlashCards />} />
+          <Route path="flashcards" element={<FlashCards />} />
           <Route path="exam" element={<ExamLabs />} />
         </Route>
       </Routes>

@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLanguage } from "../lib/LanguageContext";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import PodcastGenerator from "../components/Tools/PodcastGenerator";
 import Transcriber from "../components/Tools/Transcriber";
 import SmartNotes from "../components/Tools/SmartNotes";
@@ -11,7 +11,23 @@ type ToolId = "podcast" | "transcriber" | "notes" | "planner" | null;
 export default function Tools() {
   const { t } = useLanguage();
   const navigate = useNavigate();
-  const [activeTool, setActiveTool] = useState<ToolId>(null);
+  const [searchParams] = useSearchParams();
+
+  // ========== BGTT Integration ==========
+  // Nhận params từ BGTT exam: tool, topics, source
+  const toolFromBGTT = searchParams.get("tool") as ToolId || null;
+  const topicsFromBGTT = searchParams.get("topics") || "";
+  const sourceFromBGTT = searchParams.get("source") || "";
+  // ========================================
+
+  const [activeTool, setActiveTool] = useState<ToolId>(toolFromBGTT);
+
+  // Auto-open tool khi đến từ BGTT
+  useEffect(() => {
+    if (toolFromBGTT) {
+      setActiveTool(toolFromBGTT);
+    }
+  }, [toolFromBGTT]);
 
   const tools = [
     {

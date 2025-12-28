@@ -277,6 +277,28 @@ export async function deleteFlashcard(id: string) {
   });
 }
 
+// ========== NEW: Auto-generate flashcards from topics (for BGTT integration) ==========
+export async function generateFlashcardsFromTopics(
+  topics: string[],
+  options?: { examName?: string; wrongQuestions?: string[] }
+) {
+  return req<{
+    ok: boolean;
+    flashcards: SavedFlashcard[];
+    message?: string;
+    error?: string;
+  }>(`${env.backend}/flashcards/generate`, {
+    method: "POST",
+    headers: jsonHeaders({}),
+    body: JSON.stringify({
+      topics,
+      examName: options?.examName || '',
+      wrongQuestions: options?.wrongQuestions || []
+    }),
+    timeout: 300000, // 5 minutes for AI generation (can take 2-3 mins for multiple topics)
+  });
+}
+
 export async function getExams() {
   return req<{ ok: true; exams: { id: string; name: string; sections: any[] }[] }>(
     `${env.backend}/exams`,

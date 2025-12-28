@@ -165,4 +165,120 @@ export function authRoutes(app: any) {
             res.status(401).json({ error: error?.message || 'Invalid token' })
         }
     })
+
+    // ========== SSO from BGTT ==========
+    // Endpoint MỚI - nhận SSO token từ BGTT, tạo/login user, redirect với JWT
+    app.get('/auth/sso', async (req: any, res: any) => {
+        try {
+            const { token, redirect } = req.query
+
+            if (!token) {
+                return res.status(400).json({ error: 'SSO token required' })
+            }
+
+            // Verify SSO token
+            const ssoSecret = process.env.SSO_SECRET || process.env.JWT_SECRET
+            if (!ssoSecret) {
+                console.error('[SSO] SSO_SECRET not configured')
+                return res.status(500).json({ error: 'SSO not configured' })
+            }
+
+            // Parse token: base64payload.signature
+            const parts = token.split('.')
+            if (parts.length !== 2) {
+                return res.status(400).json({ error: 'Invalid token format' })
+            }
+
+            const [encodedPayload, signature] = parts
+
+            // Verify signature
+            const crypto = require('crypto')
+            const expectedSignature = crypto.createHmac('sha256', ssoSecret)
+                .update(encodedPayload)
+                .digest('hex')
+
+            if (signature !== expectedSignature) {
+                console.error('[SSO] Invalid signature')
+                return res.status(401).json({ error: 'Invalid token signature' })
+            }
+
+            // Decode payload
+            const payloadJson = Buffer.from(encodedPayload, 'base64').toString('utf8')
+            const payload = JSON.parse(payloadJson)
+
+            // Check expiration
+            if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
+                return res.status(401).json({ error: 'Token expired' })
+            }
+
+            const { email, name, user_id: bgttUserId } = payload
+
+            if (!email) {
+                return res.status(400).json({ error: 'Email required in token' })
+            }
+
+            console.log('[SSO] Processing SSO for:', email)
+
+            // Find or create user
+            let users = await query<{
+                id: string
+                email: string
+                name: string
+            }>('SELECT id, email, name FROM users WHERE email = ?', [email])
+
+            let userId: string
+            let userName: string
+
+            if (users.length === 0) {
+                // Create new user
+                userId = randomUUID()
+                userName = name || email.split('@')[0]
+
+                await query(
+                    'INSERT INTO users (id, email, name) VALUES (?, ?, ?)',
+                    [userId, email, userName]
+                )
+
+                console.log('[SSO] Created new user:', userId)
+            } else {
+                userId = users[0].id
+                userName = users[0].name
+                console.log('[SSO] Found existing user:', userId)
+            }
+
+            // Generate JWT token
+            const jwtToken = jwt.sign(
+                {
+                    sub: userId,
+                    userId: userId,
+                    id: userId,
+                    email,
+                    name: userName,
+                    iss: JWT_ISSUER,
+                    sso: true,
+                    source: 'bgtt'
+                },
+                JWT_SECRET,
+                { expiresIn: '7d' }
+            )
+
+            // Redirect to frontend with token
+            const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5174'
+            const redirectPath = redirect || '/'
+
+            // Build redirect URL with token in query
+            const redirectUrl = `${frontendUrl}/sso-callback?token=${encodeURIComponent(jwtToken)}&redirect=${encodeURIComponent(redirectPath)}`
+
+            console.log('[SSO] Redirecting to:', redirectUrl)
+
+            // Manual redirect since res.redirect may not exist
+            res.writeHead(302, { Location: redirectUrl })
+            res.end()
+
+        } catch (e: unknown) {
+            const error = e as Error
+            console.error('[SSO] Error:', error)
+            res.status(500).json({ error: error?.message || 'SSO failed' })
+        }
+    })
 }

@@ -31,8 +31,20 @@ export default function Quiz() {
 
   const passedTopic = (location?.state && location.state.topic) || "";
   const initialTopic = search.get("topic") || passedTopic || "";
+  
+  // ========== BGTT Integration ==========
+  // Nhận params từ BGTT exam: topics, source, mode, exam_id
+  const topicsFromBGTT = search.get("topics") || "";
+  const sourceFromBGTT = search.get("source") || "";
+  const modeFromBGTT = search.get("mode") || "";
+  const examIdFromBGTT = search.get("exam_id") || "";
+  
+  // Nếu có topics từ BGTT (nhiều topics), sử dụng cái đầu tiên làm topic
+  const bgttTopic = topicsFromBGTT ? topicsFromBGTT.split(",")[0].trim() : "";
+  const isFromExam = sourceFromBGTT === "exam";
+  // ========================================
 
-  const [topic, setTopic] = useState(initialTopic);
+  const [topic, setTopic] = useState(initialTopic || bgttTopic);
   const [qs, setQs] = useState<Question[]>([]);
   const [idx, setIdx] = useState(0);
   const [score, setScore] = useState(0);
@@ -59,7 +71,13 @@ export default function Quiz() {
   }, [percentage, t]);
 
   useEffect(() => () => { if (closeRef.current) closeRef.current(); }, []);
-  useEffect(() => { if (!initialTopic) return; start(initialTopic); }, [initialTopic]);
+  
+  // Auto-start nếu có topic (từ URL hoặc từ BGTT)
+  useEffect(() => { 
+    const topicToUse = initialTopic || bgttTopic;
+    if (!topicToUse) return; 
+    start(topicToUse); 
+  }, [initialTopic, bgttTopic]);
 
   function resetQuestionState() {
     setIdx(0);
