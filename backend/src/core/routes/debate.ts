@@ -9,6 +9,8 @@ import {
     analyzeDebate,
     DebateSession,
 } from "../../services/debate";
+import { extractUserId } from "../../utils/auth/user";
+import { chargeCreditsByText } from "../../services/credits";
 
 const debateSockets = new Map<string, Set<any>>();
 const analysisSockets = new Map<string, Set<any>>();
@@ -61,6 +63,14 @@ export function debateRoutes(app: any) {
     app.post("/debate/start", async (req: any, res: any) => {
         try {
             const { topic, position } = req.body;
+            const userId = extractUserId(req);
+
+            if (!userId) {
+                return res.status(401).json({
+                    ok: false,
+                    error: "Unauthorized",
+                });
+            }
 
             if (!topic || !topic.trim()) {
                 return res.status(400).json({
@@ -76,7 +86,16 @@ export function debateRoutes(app: any) {
                 });
             }
 
-            const session = await createDebateSession(topic.trim(), position);
+            try {
+                await chargeCreditsByText(userId, topic, 2);
+            } catch (err: any) {
+                if (err?.message === "INSUFFICIENT_CREDITS") {
+                    return res.status(402).json({ ok: false, error: "INSUFFICIENT_CREDITS" });
+                }
+                console.warn("[debate] credit charge failed", err?.message || err);
+            }
+
+            const session = await createDebateSession(userId, topic.trim(), position);
 
             res.json({
                 ok: true,
@@ -108,6 +127,18 @@ export function debateRoutes(app: any) {
                     ok: false,
                     error: "Argument is required",
                 });
+            }
+
+            try {
+                const uid = extractUserId(req);
+                if (uid) {
+                    await chargeCreditsByText(uid, argument, 2);
+                }
+            } catch (err: any) {
+                if (err?.message === "INSUFFICIENT_CREDITS") {
+                    return res.status(402).json({ ok: false, error: "INSUFFICIENT_CREDITS" });
+                }
+                console.warn("[debate] credit charge failed", err?.message || err);
             }
 
             const session = await getDebateSession(debateId);
@@ -205,7 +236,15 @@ export function debateRoutes(app: any) {
 
     app.get("/debates", async (req: any, res: any) => {
         try {
-            const sessions = await listDebateSessions();
+            const userId = extractUserId(req);
+            if (!userId) {
+                return res.status(401).json({
+                    ok: false,
+                    error: "Unauthorized",
+                });
+            }
+
+            const sessions = await listDebateSessions(userId);
             res.json({
                 ok: true,
                 debates: sessions.map((s) => ({

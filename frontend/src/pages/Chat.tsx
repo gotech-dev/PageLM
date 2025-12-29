@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { env } from "../config/env";
-import { chatJSON, getChatDetail, type FlashCard, createFlashcard, listFlashcards, deleteFlashcard, getChats, type ChatMessage, type SavedFlashcard, podcastStart } from "../lib/api";
+import { chatJSON, getChatDetail, type FlashCard, createFlashcard, listFlashcards, deleteFlashcard, getChats, type ChatMessage, type SavedFlashcard, podcastStart, updateCachedCredits } from "../lib/api";
 import MarkdownView from "../components/Chat/MarkdownView";
 import ActionRow from "../components/Chat/ActionRow";
 import FlashCards from "../components/Chat/FlashCards";
@@ -168,6 +168,10 @@ export default function Chat() {
     ws.onmessage = (ev) => {
       try {
         const m = JSON.parse(ev.data);
+        if (m?.type === "credits" && m?.credits !== undefined) {
+          updateCachedCredits(Number(m.credits));
+          return;
+        }
         if (m?.type === "answer") {
           const norm = normalizePayload(m.answer);
           setMessages((prev) => ([...(Array.isArray(prev) ? prev : []), { role: "assistant", content: norm.md, at: Date.now() }]));
@@ -375,4 +379,3 @@ export default function Chat() {
     </div>
   );
 }
-

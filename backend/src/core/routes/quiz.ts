@@ -2,6 +2,8 @@ import { handleQuiz } from "../../services/quiz";
 import { emitToAll } from "../../utils/chat/ws";
 import { withTimeout } from "../../utils/quiz/promise";
 import crypto from "crypto";
+import { extractUserId } from "../../utils/auth/user";
+import { chargeCreditsByText } from "../../services/credits";
 
 const qs = new Map<string, Set<any>>();
 const qlog = (...a: any) => console.log("[quiz]", ...a);
@@ -43,6 +45,19 @@ export function quizRoutes(app: any) {
       const topic = String(req.body?.topic || "").trim();
       if (!topic)
         return res.status(400).send({ ok: false, error: "topic required" });
+
+      // Charge credits before generation if authenticated
+      try {
+        const uid = extractUserId(req);
+        if (uid) {
+          await chargeCreditsByText(uid, topic, 2.5);
+        }
+      } catch (err: any) {
+        if (err?.message === "INSUFFICIENT_CREDITS") {
+          return res.status(402).send({ ok: false, error: "INSUFFICIENT_CREDITS" });
+        }
+        qlog("credit charge failed", err?.message || err);
+      }
 
       const quizId = crypto.randomUUID();
       qlog("start", quizId, "topic:", topic);

@@ -24,7 +24,30 @@ export function isLoggedIn(): boolean {
   return !!localStorage.getItem('auth_token');
 }
 
-export type ChatStartResponse = { ok: true; chatId: string; stream: string };
+export const CREDITS_EVENT = "credits:update";
+
+export function updateCachedCredits(credits: number | undefined | null) {
+  const val = Number(credits);
+  if (!Number.isFinite(val)) return;
+
+  // sync localStorage user
+  const stored = localStorage.getItem("user");
+  if (stored) {
+    try {
+      const parsed = JSON.parse(stored);
+      parsed.credits = val;
+      localStorage.setItem("user", JSON.stringify(parsed));
+    } catch { /* ignore */ }
+  }
+
+  if (typeof window !== "undefined") {
+    try {
+      window.dispatchEvent(new CustomEvent<number>(CREDITS_EVENT, { detail: val }));
+    } catch { /* ignore */ }
+  }
+}
+
+export type ChatStartResponse = { ok: true; chatId: string; stream: string; credits?: number };
 export type ChatMessage = { role: "user" | "assistant"; content: string; at: number };
 export type ChatInfo = { id: string; title?: string; createdAt?: number };
 export type ChatsList = { ok: true; chats: ChatInfo[] };
@@ -96,6 +119,7 @@ export type ChatEvent =
   | { type: "phase"; value: ChatPhase }
   | { type: "file"; filename: string; mime: string }
   | { type: "answer"; answer: AnswerPayload }
+  | { type: "credits"; credits: number }
   | { type: "done" }
   | { type: "error"; error: string };
 
@@ -148,11 +172,13 @@ function wsURL(path: string) {
 }
 
 export async function chatJSON(body: ChatJSONBody) {
-  return req<ChatStartResponse>(`${env.backend}/chat`, {
+  const res = await req<ChatStartResponse>(`${env.backend}/chat`, {
     method: "POST",
     headers: jsonHeaders({}),
     body: JSON.stringify(body),
   });
+  updateCachedCredits(res?.credits);
+  return res;
 }
 
 export async function chatMultipart(q: string, files: File[], chatId?: string, fastMode?: boolean) {
@@ -175,6 +201,9 @@ export function connectChatStream(chatId: string, onEvent: (ev: ChatEvent) => vo
   ws.onmessage = (m) => {
     try {
       const data = JSON.parse(m.data as string) as ChatEvent;
+      if ((data as any)?.credits !== undefined) {
+        updateCachedCredits((data as any).credits);
+      }
       onEvent(data);
     } catch { }
   };
@@ -596,7 +625,7 @@ export type DebateSession = {
 export async function startDebate(topic: string, position: "for" | "against") {
   return req<DebateStartResponse>(`${env.backend}/debate/start`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: jsonHeaders({}),
     body: JSON.stringify({ topic, position }),
     timeout: 30000,
   })
@@ -605,7 +634,7 @@ export async function startDebate(topic: string, position: "for" | "against") {
 export async function submitDebateArgument(debateId: string, argument: string) {
   return req<{ ok: boolean; message: string; error?: string }>(`${env.backend}/debate/${encodeURIComponent(debateId)}/argue`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: jsonHeaders({}),
     body: JSON.stringify({ argument }),
     timeout: 120000,
   })
@@ -614,25 +643,28 @@ export async function submitDebateArgument(debateId: string, argument: string) {
 export async function getDebateSession(debateId: string) {
   return req<{ ok: boolean; session: DebateSession; error?: string }>(`${env.backend}/debate/${encodeURIComponent(debateId)}`, {
     method: "GET",
+    headers: authHeaders(),
   })
 }
 
 export async function listDebates() {
   return req<{ ok: boolean; debates: Array<any>; error?: string }>(`${env.backend}/debates`, {
     method: "GET",
+    headers: authHeaders(),
   })
 }
 
 export async function deleteDebate(debateId: string) {
   return req<{ ok: boolean; message: string; error?: string }>(`${env.backend}/debate/${encodeURIComponent(debateId)}`, {
     method: "DELETE",
+    headers: authHeaders(),
   })
 }
 
 export async function surrenderDebate(debateId: string) {
   return req<{ ok: boolean; message: string; error?: string }>(`${env.backend}/debate/${encodeURIComponent(debateId)}/surrender`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: jsonHeaders({}),
   })
 }
 
@@ -650,7 +682,7 @@ export type DebateAnalysis = {
 export async function analyzeDebate(debateId: string) {
   return req<{ ok: boolean; analysis: DebateAnalysis; session: DebateSession; error?: string }>(`${env.backend}/debate/${encodeURIComponent(debateId)}/analyze`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: jsonHeaders({}),
     timeout: 60000,
   })
 }

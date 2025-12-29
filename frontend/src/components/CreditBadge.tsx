@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getCurrentUser, isLoggedIn } from "../lib/api";
+import { getCurrentUser, isLoggedIn, CREDITS_EVENT, updateCachedCredits } from "../lib/api";
 
 export function CreditBadge() {
   const [credits, setCredits] = useState<number | null>(null);
@@ -9,19 +9,25 @@ export function CreditBadge() {
     getCurrentUser()
       .then((res) => {
         if (res?.user?.credits !== undefined && res?.user?.credits !== null) {
-          setCredits(Number(res.user.credits));
-          // keep localStorage user in sync if present
-          const stored = localStorage.getItem("user");
-          if (stored) {
-            try {
-              const parsed = JSON.parse(stored);
-              parsed.credits = res.user.credits;
-              localStorage.setItem("user", JSON.stringify(parsed));
-            } catch { /* ignore */ }
-          }
+          const val = Number(res.user.credits);
+          setCredits(val);
+          updateCachedCredits(val);
         }
       })
       .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const onCredits = (ev: Event) => {
+      const detail = (ev as CustomEvent<number>).detail;
+      const val = Number(detail);
+      if (!Number.isFinite(val)) return;
+      setCredits(val);
+    };
+    if (typeof window !== "undefined") {
+      window.addEventListener(CREDITS_EVENT, onCredits as EventListener);
+      return () => window.removeEventListener(CREDITS_EVENT, onCredits as EventListener);
+    }
   }, []);
 
   if (!isLoggedIn() || credits === null) return null;

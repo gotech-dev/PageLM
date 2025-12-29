@@ -9,6 +9,8 @@ import {
   getMsgs,
 } from "../../utils/chat/chat";
 import { emitToAll } from "../../utils/chat/ws";
+import { chargeCreditsByText } from "../../services/credits";
+import { extractUserId } from "../../utils/auth/user";
 
 if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET environment variable is required')
 const JWT_SECRET: string = process.env.JWT_SECRET
@@ -67,6 +69,7 @@ export function chatRoutes(app: any) {
       let chatId: string | undefined;
       let files: UpFile[] = [];
       let fastMode = false;
+      let remainingCredits: number | undefined;
 
       if (isMp) {
         const tMp = Date.now();
@@ -90,9 +93,24 @@ export function chatRoutes(app: any) {
       const id = chat.id;
       const ns = `chat:${id}`;
 
+      // Pre-charge credits if user is authenticated
+      try {
+        const uid = extractUserId(req);
+        if (uid) {
+          const charged = await chargeCreditsByText(uid, q, 1.6);
+          remainingCredits = charged?.remaining;
+        }
+      } catch (err: any) {
+        const msg = err?.message || "credit_error";
+        if (msg === "INSUFFICIENT_CREDITS") {
+          return res.status(402).send({ ok: false, error: "INSUFFICIENT_CREDITS" });
+        }
+        console.error("[chat] credit charge failed:", msg);
+      }
+
       res
         .status(202)
-        .send({ ok: true, chatId: id, stream: `/ws/chat?chatId=${id}` });
+        .send({ ok: true, chatId: id, stream: `/ws/chat?chatId=${id}`, credits: remainingCredits });
       (async () => {
         try {
           if (isMp) {
@@ -145,6 +163,9 @@ export function chatRoutes(app: any) {
             createdAt: new Date(),
           });
           emitToAll(chatSockets.get(id), { type: "answer", answer });
+          if (remainingCredits !== undefined) {
+            emitToAll(chatSockets.get(id), { type: "credits", credits: remainingCredits });
+          }
           emitToAll(chatSockets.get(id), { type: "done" });
         } catch (err: any) {
           const msg = err?.message || "failed";

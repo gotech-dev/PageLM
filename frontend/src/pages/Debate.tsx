@@ -3,6 +3,14 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { useLanguage } from "../lib/LanguageContext";
 import { env } from "../config/env";
 
+// Build JSON headers with auth token if available
+const authJsonHeaders = () => {
+    const token = localStorage.getItem("auth_token");
+    const headers: HeadersInit = { "Content-Type": "application/json" };
+    if (token) headers["authorization"] = `Bearer ${token}`;
+    return headers;
+};
+
 type DebateMessage = {
     role: "user" | "assistant";
     content: string;
@@ -70,7 +78,8 @@ export default function Debate() {
         setIsAnalyzing(true);
         setAnalysisPhase(t.debate.analyzing || "Analyzing debate...");
 
-        const wsUrl = env.backend.replace(/^http/, "ws") + `/ws/debate/analyze?debateId=${debateId}`;
+        const token = localStorage.getItem("auth_token") || "";
+        const wsUrl = env.backend.replace(/^http/, "ws") + `/ws/debate/analyze?debateId=${debateId}&token=${encodeURIComponent(token)}`;
         const analysisWs = new WebSocket(wsUrl);
 
         analysisWs.onopen = () => console.log("Analysis WebSocket connected");
@@ -102,7 +111,7 @@ export default function Debate() {
         analysisWsRef.current = analysisWs;
 
         try {
-            const response = await fetch(`${env.backend}/debate/${debateId}/analyze`, { method: "POST" });
+            const response = await fetch(`${env.backend}/debate/${debateId}/analyze`, { method: "POST", headers: authJsonHeaders() });
             const data = await response.json();
             if (!data.ok && data.error) {
                 setError(data.error);
@@ -117,7 +126,8 @@ export default function Debate() {
     }, [debateId, t.debate.analyzing]);
 
     const connectWebSocket = useCallback((id: string) => {
-        const wsUrl = env.backend.replace(/^http/, "ws") + `/ws/debate?debateId=${id}`;
+        const token = localStorage.getItem("auth_token") || "";
+        const wsUrl = env.backend.replace(/^http/, "ws") + `/ws/debate?debateId=${id}&token=${encodeURIComponent(token)}`;
         const ws = new WebSocket(wsUrl);
 
         ws.onmessage = (event) => {
@@ -156,7 +166,7 @@ export default function Debate() {
 
     const fetchDebateSession = useCallback(async (id: string) => {
         try {
-            const response = await fetch(`${env.backend}/debate/${id}`);
+            const response = await fetch(`${env.backend}/debate/${id}`, { headers: authJsonHeaders() });
             const data = await response.json();
             if (data.ok) {
                 setSession(data.session);
@@ -185,7 +195,7 @@ export default function Debate() {
         try {
             const response = await fetch(`${env.backend}/debate/start`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: authJsonHeaders(),
                 body: JSON.stringify({ topic: topic.trim(), position }),
             });
             const data = await response.json();
@@ -210,7 +220,7 @@ export default function Debate() {
         try {
             const response = await fetch(`${env.backend}/debate/${debateId}/argue`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: authJsonHeaders(),
                 body: JSON.stringify({ argument: arg }),
             });
             const data = await response.json();
@@ -224,7 +234,7 @@ export default function Debate() {
         if (!debateId || isDebateEnded) return;
         if (!confirm(t.debate.surrenderConfirm)) return;
         try {
-            const response = await fetch(`${env.backend}/debate/${debateId}/surrender`, { method: "POST" });
+            const response = await fetch(`${env.backend}/debate/${debateId}/surrender`, { method: "POST", headers: authJsonHeaders() });
             const data = await response.json();
             if (data.ok) {
                 setIsDebateEnded(true);

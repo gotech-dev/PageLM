@@ -3,6 +3,8 @@ import { emitToAll, emitLarge } from "../../utils/chat/ws"
 import { withTimeout } from "../../utils/quiz/promise"
 import { handleExam } from "../../services/examlab/generate"
 import { loadAllExams } from "../../services/examlab/loader"
+import { extractUserId } from "../../utils/auth/user"
+import { chargeCreditsByText } from "../../services/credits"
 
 const streams = new Map<string, Set<any>>()
 const log = (...a: any) => console.log("[exam]", ...a)
@@ -61,6 +63,18 @@ export function examRoutes(app: any) {
     try {
       const examId = String(req.body?.examId || "").trim()
       if (!examId) return res.status(400).send({ ok: false, error: "examId required" })
+
+      try {
+        const uid = extractUserId(req)
+        if (uid) {
+          await chargeCreditsByText(uid, examId, 3)
+        }
+      } catch (err: any) {
+        if (err?.message === "INSUFFICIENT_CREDITS") {
+          return res.status(402).send({ ok: false, error: "INSUFFICIENT_CREDITS" })
+        }
+        log("credit charge failed", err?.message || err)
+      }
 
       const runId = crypto.randomUUID()
       res.status(202).send({ ok: true, runId, stream: `/ws/exams?runId=${runId}` })

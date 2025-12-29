@@ -19,7 +19,26 @@ type ModelPricing = {
   costOutputPerMTok: number
 }
 
-const DEFAULT_MODEL = process.env.OPENAI_MODEL || config.openai_model || "gpt-4o-mini"
+function resolveDefaultModel(): string {
+  switch ((config.provider || "").toLowerCase()) {
+    case "openai":
+      return process.env.OPENAI_MODEL || config.openai_model || "gpt-4o-mini"
+    case "claude":
+      return config.claude_model || "claude-3-5-sonnet-latest"
+    case "grok":
+      return config.grok_model || "grok-2-latest"
+    case "gemini":
+      return config.gemini_model || "gemini-1.5-flash"
+    case "ollama":
+      return config.ollama?.model || "llama3"
+    case "openrouter":
+      return config.openrouter_model || config.openai_model || "gpt-4o-mini"
+    default:
+      return process.env.OPENAI_MODEL || config.openai_model || "gpt-4o-mini"
+  }
+}
+
+const DEFAULT_MODEL = resolveDefaultModel()
 const CREDITS_PER_USD = Number(process.env.CREDITS_PER_USD || 100)
 const DEFAULT_BUFFER = { input: 1.05, output: 1.1 }
 const DEFAULT_MULTIPLIER = 1.2
@@ -207,6 +226,17 @@ export async function checkAndConsumeCredits(userId: string, opts: EstimateOptio
   const estimate = await estimateCost(opts)
   const remaining = await consumeCredits(userId, estimate.credits)
   return { remaining, spent: estimate.credits, estimate }
+}
+
+// Convenience: charge credits based on input text and an expected output ratio
+export async function chargeCreditsByText(userId: string, inputText: string, outputRatio = 1.5, model?: string) {
+  const estimate = await estimateCost({ inputText, outputRatio, model: model || DEFAULT_MODEL })
+  const remaining = await consumeCredits(userId, estimate.credits)
+  return { remaining, spent: estimate.credits, estimate }
+}
+
+export function getDefaultModelName() {
+  return DEFAULT_MODEL
 }
 
 export async function getBalance(userId: string): Promise<number> {
