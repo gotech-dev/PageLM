@@ -98,12 +98,12 @@ export default function Planner() {
             if (ev.type === "session.ended") {
                 addNotification("success", `Session completed: ${ev.session.minutesWorked} minutes`)
             }
-            if (ev.type === "phase" && ev.value === "preparing") {
-                setLoadingStates(prev => ({ ...prev, [ev.taskId]: { ...prev[ev.taskId], summary: true } }))
-                setMaterials(m => ({ ...m, [ev.taskId]: { ...(m[ev.taskId] || {}), summary: "" } }))
+            if (ev.type === "phase" && ev.value === "preparing" && ev.taskId) {
+                setLoadingStates(prev => ({ ...prev, [ev.taskId!]: { ...prev[ev.taskId!], summary: true } }))
+                setMaterials(m => ({ ...m, [ev.taskId!]: { ...(m[ev.taskId!] || {}), summary: "" } }))
             }
-            if (ev.type === "done") {
-                setLoadingStates(prev => ({ ...prev, [ev.taskId]: { ...prev[ev.taskId], summary: false } }))
+            if (ev.type === "done" && ev.taskId) {
+                setLoadingStates(prev => ({ ...prev, [ev.taskId!]: { ...prev[ev.taskId!], summary: false } }))
             }
             if (ev.type === "materials.chunk") {
                 // ev.taskId, ev.kind (summary/studyGuide...), ev.data

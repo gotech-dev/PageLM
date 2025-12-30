@@ -308,6 +308,28 @@ export async function deleteFlashcard(id: string) {
   });
 }
 
+// ========== NEW: Auto-generate flashcards from topics (for BGTT integration) ==========
+export async function generateFlashcardsFromTopics(
+  topics: string[],
+  options?: { examName?: string; wrongQuestions?: string[] }
+) {
+  return req<{
+    ok: boolean;
+    flashcards: SavedFlashcard[];
+    message?: string;
+    error?: string;
+  }>(`${env.backend}/flashcards/generate`, {
+    method: "POST",
+    headers: jsonHeaders({}),
+    body: JSON.stringify({
+      topics,
+      examName: options?.examName || '',
+      wrongQuestions: options?.wrongQuestions || []
+    }),
+    timeout: 300000, // 5 minutes for AI generation (can take 2-3 mins for multiple topics)
+  });
+}
+
 export async function getExams() {
   return req<{ ok: true; exams: { id: string; name: string; sections: any[] }[] }>(
     `${env.backend}/exams`,
@@ -457,6 +479,8 @@ export type PlannerTask = {
   tags?: string[];
   files?: { id: string; filename: string; originalName: string; mimeType: string; size: number; uploadedAt: number }[];
   steps?: string[];
+  materials?: Record<string, any>;
+  plan?: { slots: PlannerSlot[] };
 };
 
 export type PlannerSlot = { id: string; taskId: string; start: number; end: number; kind: "focus" | "review" | "buffer"; done?: boolean }
@@ -464,7 +488,7 @@ export type WeeklyPlan = { days: { date: string; slots: PlannerSlot[] }[] }
 
 export type PlannerEvent =
   | { type: "ready"; sid: string }
-  | { type: "phase"; value: string }
+  | { type: "phase"; value: string; taskId?: string }
   | { type: "plan.update"; taskId: string; slots: PlannerSlot[] }
   | { type: "materials.chunk"; id?: string; taskId: string; kind: string; idx?: number; total?: number; more?: boolean; encoding?: string; data: string }
   | { type: "materials.done"; id: string; total: number }
@@ -481,7 +505,7 @@ export type PlannerEvent =
   | { type: "session.ended"; session: { id: string; endedAt: string; minutesWorked: number; completed: boolean; status: string } }
   | { type: "weekly.update"; plan: WeeklyPlan }
   | { type: "slot.update"; taskId: string; slotId: string; done: boolean; skip: boolean }
-  | { type: "done" };
+  | { type: "done"; taskId?: string };
 
 export async function plannerIngest(text: string) {
   return req<{ ok: boolean; task: PlannerTask }>(`${env.backend}/tasks/ingest`, {

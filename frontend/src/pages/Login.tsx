@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useLanguage } from '../lib/LanguageContext'
+import { env } from '../config/env'
 
 export default function Login() {
     const { t } = useLanguage()
@@ -16,7 +17,7 @@ export default function Login() {
         setLoading(true)
 
         try {
-            const response = await fetch('http://localhost:5001/auth/login', {
+            const response = await fetch(`${env.backend}/auth/login`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email, password })

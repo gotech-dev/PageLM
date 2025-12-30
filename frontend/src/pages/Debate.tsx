@@ -44,7 +44,17 @@ export default function Debate() {
     const [searchParams] = useSearchParams();
     const navigate = useNavigate();
 
-    const [topic, setTopic] = useState("");
+    // ========== BGTT Integration ==========
+    // Nhận params từ BGTT exam: topics, source
+    const topicsFromBGTT = searchParams.get("topics") || "";
+    const sourceFromBGTT = searchParams.get("source") || "";
+    const isFromExam = sourceFromBGTT === "exam";
+
+    // Nếu có topics từ BGTT, sử dụng làm topic mặc định
+    const initialTopic = topicsFromBGTT ? topicsFromBGTT.split(",")[0].trim() : "";
+    // ========================================
+
+    const [topic, setTopic] = useState(initialTopic);
     const [position, setPosition] = useState<"for" | "against">("for");
     const [debateId, setDebateId] = useState<string | null>(
         searchParams.get("debateId")
@@ -197,9 +207,13 @@ export default function Debate() {
     const startDebate = async () => {
         if (!topic.trim()) return;
         try {
+            const token = localStorage.getItem('auth_token');
             const response = await fetch(`${env.backend}/debate/start`, {
                 method: "POST",
-                headers: authJsonHeaders(),
+                headers: {
+                    "Content-Type": "application/json",
+                    ...(token ? { "Authorization": `Bearer ${token}` } : {})
+                },
                 body: JSON.stringify({ topic: topic.trim(), position }),
             });
             const data = await response.json();

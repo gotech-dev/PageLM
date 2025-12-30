@@ -1,5 +1,12 @@
 import jwt from 'jsonwebtoken'
-import { Request, Response, NextFunction } from 'express'
+
+// Inline types to avoid @types/express dependency
+interface ServerResponse {
+    status(code: number): ServerResponse
+    json(data: any): void
+}
+
+type NextFunction = (err?: any) => void
 
 // Get JWT_SECRET at runtime (when function is called), not at module load time
 function getJwtSecret(): string {
@@ -8,23 +15,25 @@ function getJwtSecret(): string {
     return secret
 }
 
-export interface AuthRequest extends Request {
+export interface AuthRequest {
+    method?: string
+    url?: string
+    headers: any
+    body?: any
+    query?: any
+    params?: any
     userId?: string
     user?: {
         id: string
         email: string
         name?: string
     }
-    body: any
-    query: any
-    params: any
-    headers: any
 }
 
-export function authMiddleware(req: AuthRequest, res: Response, next: NextFunction) {
+export function authMiddleware(req: AuthRequest, res: ServerResponse, next: NextFunction) {
     console.log('[Auth] Starting auth check for:', req.method, req.url)
     try {
-        const authHeader = req.headers.authorization
+        const authHeader = req.headers.authorization as string | undefined
         console.log('[Auth] Header:', authHeader ? 'Present' : 'Missing', authHeader?.substring(0, 30))
 
         if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -40,7 +49,7 @@ export function authMiddleware(req: AuthRequest, res: Response, next: NextFuncti
 
         req.userId = decoded.sub || decoded.userId || decoded.id
         req.user = {
-            id: req.userId,
+            id: req.userId!,
             email: decoded.email,
             name: decoded.name
         }
@@ -53,9 +62,9 @@ export function authMiddleware(req: AuthRequest, res: Response, next: NextFuncti
     }
 }
 
-export function optionalAuth(req: AuthRequest, res: Response, next: NextFunction) {
+export function optionalAuth(req: AuthRequest, res: ServerResponse, next: NextFunction) {
     try {
-        const authHeader = req.headers.authorization
+        const authHeader = req.headers.authorization as string | undefined
 
         if (authHeader && authHeader.startsWith('Bearer ')) {
             const token = authHeader.substring(7)
@@ -63,7 +72,7 @@ export function optionalAuth(req: AuthRequest, res: Response, next: NextFunction
 
             req.userId = decoded.sub || decoded.userId || decoded.id
             req.user = {
-                id: req.userId,
+                id: req.userId!,
                 email: decoded.email,
                 name: decoded.name
             }

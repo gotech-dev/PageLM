@@ -11,6 +11,7 @@ import {
 } from "../../services/debate";
 import { extractUserId } from "../../utils/auth/user";
 import { chargeCreditsByText, getDefaultModelName } from "../../services/credits";
+import { authMiddleware, AuthRequest } from "../../middleware/auth";
 
 const debateSockets = new Map<string, Set<any>>();
 const analysisSockets = new Map<string, Set<any>>();
@@ -61,17 +62,9 @@ export function debateRoutes(app: any) {
         ws.send(JSON.stringify({ type: "ready", debateId }));
     });
 
-    app.post("/debate/start", async (req: any, res: any) => {
+    app.post("/debate/start", authMiddleware, async (req: AuthRequest, res: any) => {
         try {
             const { topic, position } = req.body;
-            const userId = extractUserId(req);
-
-            if (!userId) {
-                return res.status(401).json({
-                    ok: false,
-                    error: "Unauthorized",
-                });
-            }
 
             if (!topic || !topic.trim()) {
                 return res.status(400).json({
@@ -87,6 +80,29 @@ export function debateRoutes(app: any) {
                 });
             }
 
+            const userId = req.userId || req.user?.id;
+
+            // Validate user exists
+            if (!userId) {
+                return res.status(401).json({
+                    ok: false,
+                    error: "Authentication required",
+                });
+            }
+
+            // Ensure user exists in database (SSO may have created user but need to verify)
+            const { queryOne, query: dbQuery } = await import("../../utils/database/mysql");
+            const existingUser = await queryOne<{ id: string }>('SELECT id FROM users WHERE id = ?', [userId]);
+
+            if (!existingUser) {
+                // User doesn't exist - create from JWT data
+                const jwtPayload = req as any;
+                const email = jwtPayload.email || jwtPayload.user?.email || `${userId}@sso.pagelm.com`;
+                const name = jwtPayload.name || jwtPayload.user?.name || email.split('@')[0];
+
+                console.log('[Debate] Creating missing user:', { userId, email, name });
+                await dbQuery('INSERT INTO users (id, email, name) VALUES (?, ?, ?)', [userId, email, name]);
+            }
             let remainingCredits: number | undefined;
             try {
                 const charged = await chargeCreditsByText(userId, topic, 2, model);
@@ -97,7 +113,6 @@ export function debateRoutes(app: any) {
                 }
                 console.warn("[debate] credit charge failed", err?.message || err);
             }
-
             const session = await createDebateSession(userId, topic.trim(), position);
 
             res.json({
@@ -247,14 +262,7 @@ export function debateRoutes(app: any) {
 
     app.get("/debates", async (req: any, res: any) => {
         try {
-            const userId = extractUserId(req);
-            if (!userId) {
-                return res.status(401).json({
-                    ok: false,
-                    error: "Unauthorized",
-                });
-            }
-
+            const userId = req.userId || req.user?.id || 'anonymous';
             const sessions = await listDebateSessions(userId);
             res.json({
                 ok: true,
