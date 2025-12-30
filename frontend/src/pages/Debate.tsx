@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useLanguage } from "../lib/LanguageContext";
+import { updateCachedCredits } from "../lib/api";
 import { env } from "../config/env";
 
 // Build JSON headers with auth token if available
@@ -133,6 +134,9 @@ export default function Debate() {
         ws.onmessage = (event) => {
             const data = JSON.parse(event.data);
             switch (data.type) {
+                case "credits":
+                    if (data.credits !== undefined) updateCachedCredits(Number(data.credits));
+                    break;
                 case "user_argument":
                     setMessages((prev) => [...prev, { role: "user", content: data.content, timestamp: Date.now() }]);
                     break;
@@ -199,6 +203,7 @@ export default function Debate() {
                 body: JSON.stringify({ topic: topic.trim(), position }),
             });
             const data = await response.json();
+            if (data?.credits !== undefined) updateCachedCredits(Number(data.credits));
             if (data.ok) {
                 setDebateId(data.debateId);
                 setSession(data.session);
@@ -224,6 +229,7 @@ export default function Debate() {
                 body: JSON.stringify({ argument: arg }),
             });
             const data = await response.json();
+            if (data?.credits !== undefined) updateCachedCredits(Number(data.credits));
             if (!data.ok) setError(data.error);
         } catch (err) {
             setError((err as Error).message);

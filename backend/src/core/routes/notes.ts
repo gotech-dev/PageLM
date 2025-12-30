@@ -56,11 +56,14 @@ export function smartnotesRoutes(app: any) {
 
       const model = getDefaultModelName();
       // Charge credits if authenticated
+      let remainingCredits: number | undefined;
       try {
         const uid = extractUserId(req);
         const text = [topic, notes].filter(Boolean).join("\n");
         if (uid && text) {
-          await chargeCreditsByText(uid, text, 2, model);
+          const charged = await chargeCreditsByText(uid, text, 2, model);
+          remainingCredits = charged.remaining;
+          emitToAll(ns.get(noteId), { type: "credits", credits: charged.remaining });
         }
       } catch (err: any) {
         if (err?.message === "INSUFFICIENT_CREDITS") {
@@ -71,7 +74,7 @@ export function smartnotesRoutes(app: any) {
 
       res
         .status(202)
-        .send({ ok: true, noteId, stream: `/ws/smartnotes?noteId=${noteId}` });
+        .send({ ok: true, noteId, stream: `/ws/smartnotes?noteId=${noteId}`, credits: remainingCredits });
 
       setImmediate(async () => {
         try {

@@ -65,10 +65,14 @@ export function examRoutes(app: any) {
       const examId = String(req.body?.examId || "").trim()
       if (!examId) return res.status(400).send({ ok: false, error: "examId required" })
 
+      const runId = crypto.randomUUID()
+      let remainingCredits: number | undefined
       try {
         const uid = extractUserId(req)
         if (uid) {
-          await chargeCreditsByText(uid, examId, 3, model)
+          const charged = await chargeCreditsByText(uid, examId, 3, model)
+          remainingCredits = charged.remaining
+          emitToAll(streams.get(runId), { type: "credits", credits: charged.remaining })
         }
       } catch (err: any) {
         if (err?.message === "INSUFFICIENT_CREDITS") {
@@ -77,8 +81,7 @@ export function examRoutes(app: any) {
         log("credit charge failed", err?.message || err)
       }
 
-      const runId = crypto.randomUUID()
-      res.status(202).send({ ok: true, runId, stream: `/ws/exams?runId=${runId}` })
+      res.status(202).send({ ok: true, runId, stream: `/ws/exams?runId=${runId}`, credits: remainingCredits })
 
       setImmediate(async () => {
         const s = streams.get(runId)

@@ -11,6 +11,7 @@ VALUES
   (2, 'aesthetic', 'text', 0, NULL, 0, 'token_based', NULL, NULL),
   (2, 'diffusion', 'text', 0, NULL, 0, 'token_based', NULL, NULL),
   (2, 'latent-consistency', 'text', 0, NULL, 0, 'token_based', NULL, NULL),
+  (2, 'gemini-2.5-flash', 'text', 0.3, 0.03, 2.5, 'token_based', NULL, NULL),
   (4, 'claude-3-sonnet-20240229', 'text', 0, NULL, 0, 'token_based', NULL, NULL),
   (4, 'claude-3-5-sonnet-20240620', 'text', 0, NULL, 0, 'token_based', NULL, NULL),
   (2, 'sticker-maker', 'text', 0, NULL, 0, 'token_based', NULL, NULL),

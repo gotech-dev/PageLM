@@ -47,11 +47,14 @@ export function quizRoutes(app: any) {
         return res.status(400).send({ ok: false, error: "topic required" });
 
       const model = getDefaultModelName();
+      let remainingCredits: number | undefined;
       // Charge credits before generation if authenticated
       try {
         const uid = extractUserId(req);
         if (uid) {
-          await chargeCreditsByText(uid, topic, 2.5, model);
+          const charged = await chargeCreditsByText(uid, topic, 2.5, model);
+          remainingCredits = charged.remaining;
+          emitToAll(qs.get(quizId), { type: "credits", credits: charged.remaining });
         }
       } catch (err: any) {
         if (err?.message === "INSUFFICIENT_CREDITS") {
@@ -65,7 +68,7 @@ export function quizRoutes(app: any) {
 
       res
         .status(202)
-        .send({ ok: true, quizId, stream: `/ws/quiz?quizId=${quizId}` });
+        .send({ ok: true, quizId, stream: `/ws/quiz?quizId=${quizId}`, credits: remainingCredits });
 
       setImmediate(async () => {
         try {

@@ -33,7 +33,7 @@ export function CreditBadge() {
   if (!isLoggedIn() || credits === null) return null;
 
   return (
-    <div className="fixed top-4 right-4 z-50">
+    <div className="fixed bottom-20 right-6 z-50">
       <div className="flex items-center gap-2 bg-white text-emerald-700 font-semibold px-4 py-2 rounded-full shadow-lg border border-emerald-100">
         <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-emerald-50 text-emerald-700">
           $

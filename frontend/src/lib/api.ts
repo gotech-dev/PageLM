@@ -56,9 +56,9 @@ export type ChatJSONBody = { q: string; chatId?: string; fastMode?: boolean };
 export type ChatPhase = "upload_start" | "upload_done" | "generating";
 export type FlashCard = { q: string; a: string; tags?: string[] };
 export type Question = { id: number; question: string; options: string[]; correct: number; hint: string; explanation: string; imageHtml?: string; };
-export type QuizStartResponse = { ok: true; quizId: string; stream: string }
-export type QuizEvent = { type: "ready" | "phase" | "quiz" | "done" | "error" | "ping"; quizId?: string; value?: string; quiz?: unknown; error?: string; t?: number }
-export type SmartNotesStart = { ok: true; noteId: string; stream: string }
+export type QuizStartResponse = { ok: true; quizId: string; stream: string; credits?: number }
+export type QuizEvent = { type: "ready" | "phase" | "quiz" | "done" | "error" | "ping" | "credits"; quizId?: string; value?: string; quiz?: unknown; error?: string; t?: number; credits?: number }
+export type SmartNotesStart = { ok: true; noteId: string; stream: string; credits?: number }
 export type CompanionHistoryEntry = { role: "user" | "assistant"; content: string }
 export type CompanionAnswer = { topic: string; answer: string; flashcards: FlashCard[] }
 export type CompanionAskResponse = { ok: boolean; companion: CompanionAnswer }
@@ -73,6 +73,7 @@ export type ExamEvent =
   | { type: "ready"; runId: string }
   | { type: "phase"; value: string; examId?: string }
   | { type: "exam"; examId: string; payload: Question[] }
+  | { type: "credits"; credits: number }
   | { type: "done" }
   | { type: "error"; examId?: string; error: string };
 export type PodcastEvent =
@@ -88,6 +89,7 @@ export type SmartNotesEvent =
   | { type: "ready"; noteId: string }
   | { type: "phase"; value: string }
   | { type: "file"; file: string }
+  | { type: "credits"; credits: number }
   | { type: "done" }
   | { type: "error"; error: string }
   | { type: "ping"; t: number }
@@ -314,7 +316,7 @@ export async function getExams() {
 }
 
 export async function startExam(examId: string) {
-  return req<{ ok: true; runId: string; stream: string }>(
+  const res = await req<{ ok: true; runId: string; stream: string; credits?: number }>(
     `${env.backend}/exam`,
     {
       method: "POST",
@@ -322,6 +324,8 @@ export async function startExam(examId: string) {
       body: JSON.stringify({ examId }),
     }
   )
+  updateCachedCredits((res as any)?.credits);
+  return res;
 }
 
 export function connectExamStream(runId: string, onEvent: (ev: ExamEvent) => void) {
@@ -329,7 +333,9 @@ export function connectExamStream(runId: string, onEvent: (ev: ExamEvent) => voi
   const ws = new WebSocket(url)
   ws.onmessage = (m) => {
     try {
-      onEvent(JSON.parse(m.data as string) as ExamEvent)
+      const ev = JSON.parse(m.data as string) as ExamEvent
+      if ((ev as any)?.credits !== undefined) updateCachedCredits((ev as any).credits)
+      onEvent(ev)
     } catch { }
   }
   ws.onerror = () => onEvent({ type: "error", error: "stream_error" })
@@ -337,11 +343,13 @@ export function connectExamStream(runId: string, onEvent: (ev: ExamEvent) => voi
 }
 
 export async function smartnotesStart(input: { topic?: string; notes?: string; filePath?: string }) {
-  return req<SmartNotesStart>(`${env.backend}/smartnotes`, {
+  const res = await req<SmartNotesStart>(`${env.backend}/smartnotes`, {
     method: "POST",
     headers: jsonHeaders(),
     body: JSON.stringify(input),
   });
+  updateCachedCredits(res?.credits);
+  return res;
 }
 
 export function connectSmartnotesStream(noteId: string, onEvent: (ev: SmartNotesEvent) => void) {
@@ -349,7 +357,9 @@ export function connectSmartnotesStream(noteId: string, onEvent: (ev: SmartNotes
   const ws = new WebSocket(url);
   ws.onmessage = (m) => {
     try {
-      onEvent(JSON.parse(m.data as string) as SmartNotesEvent);
+      const ev = JSON.parse(m.data as string) as SmartNotesEvent;
+      if ((ev as any)?.credits !== undefined) updateCachedCredits((ev as any).credits);
+      onEvent(ev);
     } catch { }
   };
   ws.onerror = () => onEvent({ type: "error", error: "stream_error" });
@@ -365,12 +375,13 @@ export function flashcards(topic: string) {
 }
 
 export async function quizStart(topic: string) {
-  return req<QuizStartResponse>(`${env.backend}/quiz`, {
+  const res = await req<QuizStartResponse>(`${env.backend}/quiz`, {
     method: "POST",
     headers: jsonHeaders({}),
     body: JSON.stringify({ topic })
-  }
-  )
+  })
+  updateCachedCredits(res?.credits)
+  return res
 }
 
 export async function podcastStart(payload: { topic: string }) {
@@ -412,7 +423,9 @@ export function connectQuizStream(quizId: string, onEvent: (ev: QuizEvent) => vo
   const url = wsURL(`/ws/quiz?quizId=${encodeURIComponent(quizId)}`);
   const ws = new WebSocket(url); ws.onmessage = m => {
     try {
-      onEvent(JSON.parse(m.data as string) as QuizEvent)
+      const ev = JSON.parse(m.data as string) as QuizEvent
+      if ((ev as any)?.credits !== undefined) updateCachedCredits((ev as any).credits)
+      onEvent(ev)
     } catch { }
   }; ws.onerror = () => onEvent({ type: "error", error: "stream_error" } as any); return { ws, close: () => { try { ws.close() } catch { } } }
 }
@@ -606,6 +619,7 @@ export type DebateStartResponse = {
     position: "for" | "against";
     createdAt: number;
   };
+  credits?: number;
   stream: string;
   error?: string;
 }
@@ -623,21 +637,25 @@ export type DebateSession = {
 }
 
 export async function startDebate(topic: string, position: "for" | "against") {
-  return req<DebateStartResponse>(`${env.backend}/debate/start`, {
+  const res = await req<DebateStartResponse>(`${env.backend}/debate/start`, {
     method: "POST",
     headers: jsonHeaders({}),
     body: JSON.stringify({ topic, position }),
     timeout: 30000,
   })
+  updateCachedCredits(res?.credits)
+  return res
 }
 
 export async function submitDebateArgument(debateId: string, argument: string) {
-  return req<{ ok: boolean; message: string; error?: string }>(`${env.backend}/debate/${encodeURIComponent(debateId)}/argue`, {
+  const res = await req<{ ok: boolean; message: string; credits?: number; error?: string }>(`${env.backend}/debate/${encodeURIComponent(debateId)}/argue`, {
     method: "POST",
     headers: jsonHeaders({}),
     body: JSON.stringify({ argument }),
     timeout: 120000,
   })
+  updateCachedCredits((res as any)?.credits)
+  return res
 }
 
 export async function getDebateSession(debateId: string) {

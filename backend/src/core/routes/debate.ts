@@ -87,8 +87,10 @@ export function debateRoutes(app: any) {
                 });
             }
 
+            let remainingCredits: number | undefined;
             try {
-                await chargeCreditsByText(userId, topic, 2, model);
+                const charged = await chargeCreditsByText(userId, topic, 2, model);
+                remainingCredits = charged.remaining;
             } catch (err: any) {
                 if (err?.message === "INSUFFICIENT_CREDITS") {
                     return res.status(402).json({ ok: false, error: "INSUFFICIENT_CREDITS" });
@@ -107,6 +109,7 @@ export function debateRoutes(app: any) {
                     position: session.position,
                     createdAt: session.createdAt,
                 },
+                credits: remainingCredits,
                 stream: `/ws/debate?debateId=${session.id}`,
             });
         } catch (error: any) {
@@ -122,6 +125,7 @@ export function debateRoutes(app: any) {
         try {
             const { debateId } = req.params;
             const { argument } = req.body;
+            let creditsAfterCharge: number | undefined;
 
             if (!argument || !argument.trim()) {
                 return res.status(400).json({
@@ -133,7 +137,8 @@ export function debateRoutes(app: any) {
             try {
                 const uid = extractUserId(req);
                 if (uid) {
-                    await chargeCreditsByText(uid, argument, 2, model);
+                    const charged = await chargeCreditsByText(uid, argument, 2, model);
+                    creditsAfterCharge = charged.remaining;
                 }
             } catch (err: any) {
                 if (err?.message === "INSUFFICIENT_CREDITS") {
@@ -153,6 +158,7 @@ export function debateRoutes(app: any) {
             res.status(202).json({
                 ok: true,
                 message: "Argument received, streaming response",
+                credits: creditsAfterCharge,
             });
 
             const sockets = debateSockets.get(debateId);
@@ -170,6 +176,10 @@ export function debateRoutes(app: any) {
                     }
                 });
             };
+
+            if (creditsAfterCharge !== undefined) {
+                emitToDebate({ type: "credits", credits: creditsAfterCharge });
+            }
 
             emitToDebate({ type: "user_argument", content: argument.trim() });
             emitToDebate({ type: "ai_thinking" });

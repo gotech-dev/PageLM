@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo, useRef } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { quizStart, connectQuizStream, QuizEvent, err as getErr } from "../lib/api";
+import { quizStart, connectQuizStream, QuizEvent, err as getErr, updateCachedCredits } from "../lib/api";
 import LoadingIndicator from "../components/Chat/LoadingIndicator";
 import { useLanguage } from "../lib/LanguageContext";
 
@@ -81,7 +81,11 @@ export default function Quiz() {
 
     try {
       const s = await quizStart(trimmed);
+      if (s?.credits !== undefined) updateCachedCredits(Number(s.credits));
       const { close } = connectQuizStream(s.quizId, (ev: QuizEvent) => {
+        if (ev.type === "credits" && ev.credits !== undefined) {
+          updateCachedCredits(Number(ev.credits));
+        }
         if (ev.type === "quiz") {
           const arr = takeQuizArray(ev.quiz).map(q => ({
             ...q,
