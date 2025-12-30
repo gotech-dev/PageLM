@@ -4,10 +4,11 @@ import { withTimeout } from "../../utils/quiz/promise"
 import { handleExam } from "../../services/examlab/generate"
 import { loadAllExams } from "../../services/examlab/loader"
 import { extractUserId } from "../../utils/auth/user"
-import { chargeCreditsByText } from "../../services/credits"
+import { chargeCreditsByText, getDefaultModelName } from "../../services/credits"
 
 const streams = new Map<string, Set<any>>()
 const log = (...a: any) => console.log("[exam]", ...a)
+const model = getDefaultModelName()
 
 function okSpec(x: any) {
   return x && typeof x.id === "string" && typeof x.name === "string" && Array.isArray(x.sections) && x.sections.every((s: any) => s?.gen?.type)
@@ -67,7 +68,7 @@ export function examRoutes(app: any) {
       try {
         const uid = extractUserId(req)
         if (uid) {
-          await chargeCreditsByText(uid, examId, 3)
+          await chargeCreditsByText(uid, examId, 3, model)
         }
       } catch (err: any) {
         if (err?.message === "INSUFFICIENT_CREDITS") {

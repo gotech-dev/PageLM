@@ -3,7 +3,7 @@ import { emitToAll } from "../../utils/chat/ws";
 import { withTimeout } from "../../utils/quiz/promise";
 import crypto from "crypto";
 import { extractUserId } from "../../utils/auth/user";
-import { chargeCreditsByText } from "../../services/credits";
+import { chargeCreditsByText, getDefaultModelName } from "../../services/credits";
 
 const qs = new Map<string, Set<any>>();
 const qlog = (...a: any) => console.log("[quiz]", ...a);
@@ -46,11 +46,12 @@ export function quizRoutes(app: any) {
       if (!topic)
         return res.status(400).send({ ok: false, error: "topic required" });
 
+      const model = getDefaultModelName();
       // Charge credits before generation if authenticated
       try {
         const uid = extractUserId(req);
         if (uid) {
-          await chargeCreditsByText(uid, topic, 2.5);
+          await chargeCreditsByText(uid, topic, 2.5, model);
         }
       } catch (err: any) {
         if (err?.message === "INSUFFICIENT_CREDITS") {

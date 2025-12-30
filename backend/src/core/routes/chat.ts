@@ -9,7 +9,7 @@ import {
   getMsgs,
 } from "../../utils/chat/chat";
 import { emitToAll } from "../../utils/chat/ws";
-import { chargeCreditsByText } from "../../services/credits";
+import { calculateCredits, checkCredits, consumeCredits, getDefaultModelName } from "../../services/credits";
 import { extractUserId } from "../../utils/auth/user";
 
 if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET environment variable is required')
@@ -70,6 +70,11 @@ export function chatRoutes(app: any) {
       let files: UpFile[] = [];
       let fastMode = false;
       let remainingCredits: number | undefined;
+      let creditCheck:
+        | { credits: number; sufficient: boolean; currentCredits: number; neededCredits: number }
+        | null = null;
+      const uid = extractUserId(req);
+      const model = getDefaultModelName();
 
       if (isMp) {
         const tMp = Date.now();
@@ -93,24 +98,23 @@ export function chatRoutes(app: any) {
       const id = chat.id;
       const ns = `chat:${id}`;
 
-      // Pre-charge credits if user is authenticated
+      // Check credits first; only consume after successful generation
       try {
-        const uid = extractUserId(req);
         if (uid) {
-          const charged = await chargeCreditsByText(uid, q, 1.6);
-          remainingCredits = charged?.remaining;
+          const check = await checkCredits(uid, { inputText: q, outputRatio: 1.6, model });
+          creditCheck = check;
+          if (!check.sufficient) {
+            return res.status(402).send({ ok: false, error: "INSUFFICIENT_CREDITS" });
+          }
         }
       } catch (err: any) {
         const msg = err?.message || "credit_error";
-        if (msg === "INSUFFICIENT_CREDITS") {
-          return res.status(402).send({ ok: false, error: "INSUFFICIENT_CREDITS" });
-        }
-        console.error("[chat] credit charge failed:", msg);
+        console.error("[chat] credit check failed:", msg);
       }
 
       res
         .status(202)
-        .send({ ok: true, chatId: id, stream: `/ws/chat?chatId=${id}`, credits: remainingCredits });
+        .send({ ok: true, chatId: id, stream: `/ws/chat?chatId=${id}` });
       (async () => {
         try {
           if (isMp) {
@@ -150,12 +154,13 @@ export function chatRoutes(app: any) {
           const msgHistory = await getMsgs(id);
           const relevantHistory = msgHistory.slice(-20);
 
-          answer = await handleAsk({
+          const askResult = await handleAsk({
             q,
             namespace: ns,
             history: relevantHistory,
             fastMode,
           });
+          answer = askResult.answer;
 
           await addMsg(id, {
             role: "assistant",
@@ -163,8 +168,35 @@ export function chatRoutes(app: any) {
             createdAt: new Date(),
           });
           emitToAll(chatSockets.get(id), { type: "answer", answer });
-          if (remainingCredits !== undefined) {
-            emitToAll(chatSockets.get(id), { type: "credits", credits: remainingCredits });
+          if (uid && creditCheck) {
+            try {
+              const usage = askResult.usage;
+              let creditsToConsume = creditCheck.credits;
+
+              if (usage && (usage.inputTokens !== undefined || usage.outputTokens !== undefined || usage.totalTokens !== undefined)) {
+                const inputTokens = Math.max(0, usage.inputTokens ?? 0);
+                let outputTokens = usage.outputTokens !== undefined
+                  ? Math.max(0, usage.outputTokens)
+                  : usage.totalTokens !== undefined && usage.inputTokens !== undefined
+                    ? Math.max(usage.totalTokens - usage.inputTokens, 0)
+                    : 0;
+
+                if (!outputTokens && usage.totalTokens !== undefined && usage.inputTokens === undefined) {
+                  outputTokens = Math.max(usage.totalTokens, 0);
+                }
+
+                const actual = await calculateCredits(inputTokens, outputTokens, model);
+                creditsToConsume = actual.credits;
+              }
+
+              const remaining = await consumeCredits(uid, creditsToConsume);
+              remainingCredits = remaining;
+              emitToAll(chatSockets.get(id), { type: "credits", credits: remaining });
+            } catch (err: any) {
+              const msg = err?.message || "credit_consume_failed";
+              console.error("[chat] credit consume failed:", msg);
+              emitToAll(chatSockets.get(id), { type: "credits_error", error: msg });
+            }
           }
           emitToAll(chatSockets.get(id), { type: "done" });
         } catch (err: any) {

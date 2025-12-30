@@ -5,7 +5,7 @@ import { config } from "../../config/env";
 import crypto from "crypto";
 import path from "path";
 import { extractUserId } from "../../utils/auth/user";
-import { chargeCreditsByText } from "../../services/credits";
+import { chargeCreditsByText, getDefaultModelName } from "../../services/credits";
 
 const ns = new Map<string, Set<any>>();
 const nlog = (...a: any) => console.log("[smartnotes]", ...a);
@@ -54,12 +54,13 @@ export function smartnotesRoutes(app: any) {
       const noteId = crypto.randomUUID();
       nlog("start", noteId, "input:", { topic, notes, filePath });
 
+      const model = getDefaultModelName();
       // Charge credits if authenticated
       try {
         const uid = extractUserId(req);
         const text = [topic, notes].filter(Boolean).join("\n");
         if (uid && text) {
-          await chargeCreditsByText(uid, text, 2);
+          await chargeCreditsByText(uid, text, 2, model);
         }
       } catch (err: any) {
         if (err?.message === "INSUFFICIENT_CREDITS") {

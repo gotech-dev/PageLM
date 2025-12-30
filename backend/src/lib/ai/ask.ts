@@ -6,7 +6,8 @@ import { execDirect } from "../../agents/runtime"
 import { normalizeTopic } from "../../utils/text/normalize"
 
 export type AskCard = { q: string; a: string; tags?: string[] }
-export type AskPayload = { topic: string; answer: string; flashcards: AskCard[] }
+export type TokenUsage = { inputTokens?: number; outputTokens?: number; totalTokens?: number }
+export type AskPayload = { topic: string; answer: string; flashcards: AskCard[]; usage?: TokenUsage }
 
 function toText(out: any): string {
   if (!out) return ""
@@ -36,6 +37,60 @@ function extractFirstJsonObject(s: string): string {
 
 function tryParse<T = unknown>(s: string): T | null {
   try { return JSON.parse(s) as T } catch { return null }
+}
+
+function toNumberOrUndefined(v: any): number | undefined {
+  const n = Number(v)
+  return Number.isFinite(n) && n >= 0 ? n : undefined
+}
+
+function extractUsageMetadata(res: any): TokenUsage | undefined {
+  const sources = [
+    res?.usage_metadata,
+    res?.usage,
+    res?.response_metadata?.tokenUsage,
+    res?.response_metadata?.usageMetadata,
+    res?.response_metadata?.tokenMetadata,
+    res?.response_metadata,
+    res?.additional_kwargs?.usage,
+  ]
+
+  for (const src of sources) {
+    if (!src || typeof src !== "object") continue
+
+    const input = toNumberOrUndefined(
+      src.input_tokens ??
+      src.prompt_tokens ??
+      src.promptTokens ??
+      src.promptTokenCount ??
+      src.inputTokenCount ??
+      src.input_tokens_count
+    )
+    const output = toNumberOrUndefined(
+      src.output_tokens ??
+      src.completion_tokens ??
+      src.completionTokens ??
+      src.candidatesTokenCount ??
+      src.outputTokenCount ??
+      src.output_tokens_count ??
+      src.generated_tokens
+    )
+    const total =
+      toNumberOrUndefined(src.total_tokens ?? src.totalTokens ?? src.totalTokenCount ?? src.total) ??
+      toNumberOrUndefined(src.totalTokenCount)
+
+    if (input !== undefined || output !== undefined || total !== undefined) {
+      const derivedOutput = output ?? (total !== undefined && input !== undefined ? Math.max(total - input, 0) : undefined)
+      const derivedTotal = total ?? (input !== undefined && derivedOutput !== undefined ? input + derivedOutput : undefined)
+      return {
+        inputTokens: input,
+        outputTokens: derivedOutput,
+        totalTokens: derivedTotal,
+      }
+    }
+  }
+
+  return undefined
 }
 
 export const FAST_SYSTEM_PROMPT = `
@@ -357,12 +412,14 @@ export async function askWithContext(opts: AskWithContextOptions): Promise<AskPa
   })
 
   let draft = ""
+  let rawRes: any
   if (opts.onChunk) {
     draft = await llm.stream(messages as any, opts.onChunk)
   } else {
-    const res = await llm.call(messages as any)
-    draft = toText(res).trim()
+    rawRes = await llm.call(messages as any)
+    draft = toText(rawRes).trim()
   }
+  const usage = rawRes ? extractUsageMetadata(rawRes) : undefined
 
   const jsonStr = jsonMode ? (extractFirstJsonObject(draft) || draft) : ""
   const parsed = jsonMode ? tryParse<any>(jsonStr) : null
@@ -373,8 +430,9 @@ export async function askWithContext(opts: AskWithContextOptions): Promise<AskPa
         topic: typeof parsed.topic === "string" ? parsed.topic : topic,
         answer: typeof parsed.answer === "string" ? parsed.answer : "",
         flashcards: Array.isArray(parsed.flashcards) ? (parsed.flashcards as AskCard[]) : [],
+        ...(usage ? { usage } : {}),
       }
-      : { topic, answer: draft, flashcards: [] }
+      : { topic, answer: draft, flashcards: [], ...(usage ? { usage } : {}) }
 
   writeCache(ck, out)
   return out

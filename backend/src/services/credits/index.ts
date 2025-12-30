@@ -39,7 +39,9 @@ function resolveDefaultModel(): string {
 }
 
 const DEFAULT_MODEL = resolveDefaultModel()
-const CREDITS_PER_USD = Number(process.env.CREDITS_PER_USD || 100)
+// Currency: default 1 credit = 1000 VND; usd->vnd rate from env (AI_CURRENCY_RATE)
+const USD_TO_VND = Number(process.env.AI_CURRENCY_RATE || 24000)
+const VND_PER_CREDIT = Number(process.env.CREDIT_VND_VALUE || 1000)
 const DEFAULT_BUFFER = { input: 1.05, output: 1.1 }
 const DEFAULT_MULTIPLIER = 1.2
 const DEFAULT_COST_INPUT = 1
@@ -61,6 +63,7 @@ export type CreditEstimate = {
   outputTokens: number
   credits: number
   usd: number
+  vnd: number
   model: string
 }
 
@@ -138,13 +141,15 @@ export async function calculateCredits(inputTokens: number, outputTokens: number
   const inputUsd = (bufferedInput / 1_000_000) * pricing.costInputPerMTok
   const outputUsd = (bufferedOutput / 1_000_000) * pricing.costOutputPerMTok
   const usd = (inputUsd + outputUsd) * pricing.multiplier
-  const credits = Math.ceil(usd * CREDITS_PER_USD)
+  const vnd = usd * USD_TO_VND
+  const credits = Math.ceil(vnd / VND_PER_CREDIT)
 
   return {
     inputTokens: bufferedInput,
     outputTokens: bufferedOutput,
     credits,
     usd,
+    vnd,
     model,
   }
 }

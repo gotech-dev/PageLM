@@ -10,10 +10,11 @@ import {
     DebateSession,
 } from "../../services/debate";
 import { extractUserId } from "../../utils/auth/user";
-import { chargeCreditsByText } from "../../services/credits";
+import { chargeCreditsByText, getDefaultModelName } from "../../services/credits";
 
 const debateSockets = new Map<string, Set<any>>();
 const analysisSockets = new Map<string, Set<any>>();
+const model = getDefaultModelName();
 
 export function debateRoutes(app: any) {
     app.ws("/ws/debate", (ws: any, req: any) => {
@@ -87,7 +88,7 @@ export function debateRoutes(app: any) {
             }
 
             try {
-                await chargeCreditsByText(userId, topic, 2);
+                await chargeCreditsByText(userId, topic, 2, model);
             } catch (err: any) {
                 if (err?.message === "INSUFFICIENT_CREDITS") {
                     return res.status(402).json({ ok: false, error: "INSUFFICIENT_CREDITS" });
@@ -132,7 +133,7 @@ export function debateRoutes(app: any) {
             try {
                 const uid = extractUserId(req);
                 if (uid) {
-                    await chargeCreditsByText(uid, argument, 2);
+                    await chargeCreditsByText(uid, argument, 2, model);
                 }
             } catch (err: any) {
                 if (err?.message === "INSUFFICIENT_CREDITS") {
