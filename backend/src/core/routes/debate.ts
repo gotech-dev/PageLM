@@ -168,7 +168,7 @@ export function debateRoutes(app: any) {
             res.status(202).json({
                 ok: true,
                 message: "Argument received, streaming response",
-                credits: estimatedCredits,
+                credits: undefined,
             });
 
             const sockets = debateSockets.get(debateId);
@@ -189,8 +189,6 @@ export function debateRoutes(app: any) {
 
             if (creditsAfterCharge !== undefined) {
                 emitToDebate({ type: "credits", credits: creditsAfterCharge });
-            } else if (estimatedCredits !== undefined) {
-                emitToDebate({ type: "credits", credits: estimatedCredits, pending: true });
             }
 
             emitToDebate({ type: "user_argument", content: argument.trim() });

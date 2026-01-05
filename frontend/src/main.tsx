@@ -12,6 +12,7 @@ import PlannerPage from './pages/Planner'
 import Debate from './pages/Debate'
 import Login from './pages/Login'
 import SsoCallback from './pages/SsoCallback'
+import Credits from './pages/Credits'
 import { LanguageProvider } from "./lib/LanguageContext";
 import "./index.css"
 
@@ -32,6 +33,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <Route path="cards" element={<FlashCards />} />
           <Route path="flashcards" element={<FlashCards />} />
           <Route path="exam" element={<ExamLabs />} />
+          <Route path="credits" element={<Credits />} />
         </Route>
       </Routes>
     </BrowserRouter>

@@ -3,7 +3,7 @@ import { emitToAll } from "../../utils/chat/ws";
 import { withTimeout } from "../../utils/quiz/promise";
 import crypto from "crypto";
 import { extractUserId } from "../../utils/auth/user";
-import { chargeCreditsByText, getDefaultModelName } from "../../services/credits";
+import { calculateCredits, checkCredits, consumeCredits, estimateTokens, getDefaultModelName } from "../../services/credits";
 
 const qs = new Map<string, Set<any>>();
 const qlog = (...a: any) => console.log("[quiz]", ...a);
@@ -48,23 +48,24 @@ export function quizRoutes(app: any) {
 
       const model = getDefaultModelName();
       const quizId = crypto.randomUUID();
+      const uid = extractUserId(req);
       let remainingCredits: number | undefined;
-      // Charge credits before generation if authenticated
+      let creditCheck: Awaited<ReturnType<typeof checkCredits>> | null = null
+      // Pre-check credits only; consume after generation succeeds
       try {
-        const uid = extractUserId(req);
         if (uid) {
-          const charged = await chargeCreditsByText(uid, topic, 2.5, model, {
-            taskType: "quiz_generate",
-            meta: { quizId, topicPreview: topic.slice(0, 200) },
-          });
-          remainingCredits = charged.remaining;
-          emitToAll(qs.get(quizId), { type: "credits", credits: charged.remaining });
+          const check = await checkCredits(uid, { inputText: topic, outputRatio: 2.5, model });
+          creditCheck = check;
+          remainingCredits = check.currentCredits;
+          if (!check.sufficient) {
+            return res.status(402).send({ ok: false, error: "INSUFFICIENT_CREDITS" });
+          }
         }
       } catch (err: any) {
         if (err?.message === "INSUFFICIENT_CREDITS") {
           return res.status(402).send({ ok: false, error: "INSUFFICIENT_CREDITS" });
         }
-        qlog("credit charge failed", err?.message || err);
+        qlog("credit check failed", err?.message || err);
       }
 
       qlog("start", quizId, "topic:", topic);
@@ -79,6 +80,31 @@ export function quizRoutes(app: any) {
           const qz = await withTimeout(handleQuiz(topic), 60000, "handleQuiz");
           qlog("generated", quizId, Array.isArray(qz) ? qz.length : "n/a");
           emitToAll(qs.get(quizId), { type: "quiz", quiz: qz });
+          if (uid && creditCheck) {
+            try {
+              const inputTokens = estimateTokens(topic, model);
+              const outputTokens = estimateTokens(JSON.stringify(qz), model);
+              const actual = await calculateCredits(inputTokens, outputTokens, model);
+              const remaining = await consumeCredits(uid, actual.credits, {
+                aiModel: model,
+                taskType: "quiz_generate",
+                inputTokens: actual.inputTokens,
+                outputTokens: actual.outputTokens,
+                inputHash: crypto.createHash("sha256").update(topic).digest("hex"),
+                meta: { quizId, topicPreview: topic.slice(0, 200) },
+              });
+              emitToAll(qs.get(quizId), {
+                type: "credits",
+                credits: remaining,
+                spent: actual.credits,
+                inputTokens: actual.inputTokens,
+                outputTokens: actual.outputTokens,
+              });
+            } catch (err: any) {
+              qlog("credit consume failed", err?.message || err);
+              emitToAll(qs.get(quizId), { type: "credits_error", error: err?.message || "credit_consume_failed" });
+            }
+          }
           emitToAll(qs.get(quizId), { type: "done" });
           qlog("done", quizId);
         } catch (e: any) {

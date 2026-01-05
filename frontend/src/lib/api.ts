@@ -25,6 +25,7 @@ export function isLoggedIn(): boolean {
 }
 
 export const CREDITS_EVENT = "credits:update";
+export const CREDITS_INSUFFICIENT_EVENT = "credits:insufficient";
 
 export function updateCachedCredits(credits: number | undefined | null) {
   const val = Number(credits);
@@ -152,6 +153,7 @@ async function req<T = unknown>(
         try {
           if (typeof window !== "undefined") {
             window.dispatchEvent(new CustomEvent<number>(CREDITS_EVENT, { detail: 0 }));
+            window.dispatchEvent(new CustomEvent<void>(CREDITS_INSUFFICIENT_EVENT));
           }
         } catch { /* ignore */ }
       }
@@ -738,6 +740,24 @@ export async function analyzeDebate(debateId: string) {
     method: "POST",
     headers: jsonHeaders({}),
     timeout: 60000,
+  })
+}
+
+export type CreditHistoryEntry = {
+  id: string;
+  taskType: string;
+  creditsUsed: number;
+  inputTokens: number;
+  outputTokens: number;
+  model: string | null;
+  createdAt: number;
+  meta?: any;
+}
+
+export async function getCreditHistory(limit = 50) {
+  return req<{ ok: boolean; entries: CreditHistoryEntry[]; error?: string }>(`${env.backend}/credits/history?limit=${limit}`, {
+    method: "GET",
+    headers: authHeaders(),
   })
 }
 

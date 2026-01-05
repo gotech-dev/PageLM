@@ -9,6 +9,7 @@ import { plannerRoutes } from "./routes/planner";
 import { debateRoutes } from "./routes/debate";
 import { companionRoutes } from "./routes/companion";
 import { authRoutes } from "./routes/auth";
+import { creditRoutes } from "./routes/credits";
 
 export function registerRoutes(app: any) {
   authRoutes(app);
@@ -22,4 +23,5 @@ export function registerRoutes(app: any) {
   plannerRoutes(app);
   debateRoutes(app);
   companionRoutes(app);
+  creditRoutes(app);
 }

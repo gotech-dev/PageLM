@@ -4,7 +4,7 @@ import { withTimeout } from "../../utils/quiz/promise"
 import { handleExam } from "../../services/examlab/generate"
 import { loadAllExams } from "../../services/examlab/loader"
 import { extractUserId } from "../../utils/auth/user"
-import { chargeCreditsByText, getDefaultModelName } from "../../services/credits"
+import { calculateCredits, checkCredits, consumeCredits, estimateTokens, getDefaultModelName } from "../../services/credits"
 
 const streams = new Map<string, Set<any>>()
 const log = (...a: any) => console.log("[exam]", ...a)
@@ -66,22 +66,23 @@ export function examRoutes(app: any) {
       if (!examId) return res.status(400).send({ ok: false, error: "examId required" })
 
       const runId = crypto.randomUUID()
+      const uid = extractUserId(req)
       let remainingCredits: number | undefined
+      let creditCheck: Awaited<ReturnType<typeof checkCredits>> | null = null
       try {
-        const uid = extractUserId(req)
         if (uid) {
-          const charged = await chargeCreditsByText(uid, examId, 3, model, {
-            taskType: "exam_generate",
-            meta: { runId, examId },
-          })
-          remainingCredits = charged.remaining
-          emitToAll(streams.get(runId), { type: "credits", credits: charged.remaining })
+          const check = await checkCredits(uid, { inputText: examId, outputRatio: 3, model })
+          creditCheck = check
+          remainingCredits = check.currentCredits
+          if (!check.sufficient) {
+            return res.status(402).send({ ok: false, error: "INSUFFICIENT_CREDITS" })
+          }
         }
       } catch (err: any) {
         if (err?.message === "INSUFFICIENT_CREDITS") {
           return res.status(402).send({ ok: false, error: "INSUFFICIENT_CREDITS" })
         }
-        log("credit charge failed", err?.message || err)
+        log("credit check failed", err?.message || err)
       }
 
       res.status(202).send({ ok: true, runId, stream: `/ws/exams?runId=${runId}`, credits: remainingCredits })
@@ -92,6 +93,31 @@ export function examRoutes(app: any) {
           emitToAll(s, { type: "phase", value: "generating", examId })
           const payload = await withTimeout(handleExam(examId), 180000, "handleExam")
           await emitLarge(s, "exam", { examId, payload }, { id: runId, chunkBytes: 128 * 1024, gzip: false })
+          if (uid && creditCheck) {
+            try {
+              const inputTokens = estimateTokens(examId, model)
+              const outputTokens = estimateTokens(JSON.stringify(payload), model)
+              const actual = await calculateCredits(inputTokens, outputTokens, model)
+              const remaining = await consumeCredits(uid, actual.credits, {
+                aiModel: model,
+                taskType: "exam_generate",
+                inputTokens: actual.inputTokens,
+                outputTokens: actual.outputTokens,
+                inputHash: crypto.createHash("sha256").update(examId).digest("hex"),
+                meta: { runId, examId },
+              })
+              emitToAll(s, {
+                type: "credits",
+                credits: remaining,
+                spent: actual.credits,
+                inputTokens: actual.inputTokens,
+                outputTokens: actual.outputTokens,
+              })
+            } catch (err: any) {
+              log("credit consume failed", err?.message || err)
+              emitToAll(s, { type: "credits_error", error: err?.message || "credit_consume_failed" })
+            }
+          }
           emitToAll(s, { type: "done" })
           log("single done", runId, examId)
         } catch (e: any) {
