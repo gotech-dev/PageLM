@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { getExams, startExam, connectExamStream, type ExamEvent } from "../lib/api"
+import { getExams, startExam, connectExamStream, type ExamEvent, updateCachedCredits } from "../lib/api"
 import LoadingIndicator from "../components/Chat/LoadingIndicator"
 import QuizHeader from "../components/Quiz/QuizHeader"
 import QuestionCard from "../components/Quiz/QuestionCard"
@@ -86,8 +86,10 @@ export default function ExamLabs() {
     setConnecting(true)
 
     try {
-      const { runId } = await startExam(id)
+      const { runId, credits } = await startExam(id)
+      if (credits !== undefined) updateCachedCredits(Number(credits))
       const { close } = connectExamStream(runId, (ev: ExamEvent) => {
+        if (ev.type === "credits" && ev.credits !== undefined) updateCachedCredits(Number(ev.credits))
         if (ev.type === "exam") {
           const arr = Array.isArray(ev.payload) ? ev.payload : []
           setQs(arr.map((q: any) => ({ ...q, correct: Math.max(0, q.correct - 1) })))

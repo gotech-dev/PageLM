@@ -4,6 +4,7 @@ export interface User {
     id: string
     email: string
     name?: string
+    credits?: number
 }
 
 export async function ensureUserExists(user: User): Promise<void> {
@@ -23,7 +24,7 @@ export async function ensureUserExists(user: User): Promise<void> {
 
 export async function getUser(userId: string): Promise<User | null> {
     return queryOne<User>(
-        'SELECT id, email, name FROM users WHERE id = ?',
+        'SELECT id, email, name, credits FROM users WHERE id = ?',
         [userId]
     )
 }

@@ -1,7 +1,16 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useLanguage } from "../lib/LanguageContext";
+import { updateCachedCredits } from "../lib/api";
 import { env } from "../config/env";
+
+// Build JSON headers with auth token if available
+const authJsonHeaders = () => {
+    const token = localStorage.getItem("auth_token");
+    const headers: HeadersInit = { "Content-Type": "application/json" };
+    if (token) headers["authorization"] = `Bearer ${token}`;
+    return headers;
+};
 
 type DebateMessage = {
     role: "user" | "assistant";
@@ -80,7 +89,8 @@ export default function Debate() {
         setIsAnalyzing(true);
         setAnalysisPhase(t.debate.analyzing || "Analyzing debate...");
 
-        const wsUrl = env.backend.replace(/^http/, "ws") + `/ws/debate/analyze?debateId=${debateId}`;
+        const token = localStorage.getItem("auth_token") || "";
+        const wsUrl = env.backend.replace(/^http/, "ws") + `/ws/debate/analyze?debateId=${debateId}&token=${encodeURIComponent(token)}`;
         const analysisWs = new WebSocket(wsUrl);
 
         analysisWs.onopen = () => console.log("Analysis WebSocket connected");
@@ -112,7 +122,7 @@ export default function Debate() {
         analysisWsRef.current = analysisWs;
 
         try {
-            const response = await fetch(`${env.backend}/debate/${debateId}/analyze`, { method: "POST" });
+            const response = await fetch(`${env.backend}/debate/${debateId}/analyze`, { method: "POST", headers: authJsonHeaders() });
             const data = await response.json();
             if (!data.ok && data.error) {
                 setError(data.error);
@@ -127,12 +137,16 @@ export default function Debate() {
     }, [debateId, t.debate.analyzing]);
 
     const connectWebSocket = useCallback((id: string) => {
-        const wsUrl = env.backend.replace(/^http/, "ws") + `/ws/debate?debateId=${id}`;
+        const token = localStorage.getItem("auth_token") || "";
+        const wsUrl = env.backend.replace(/^http/, "ws") + `/ws/debate?debateId=${id}&token=${encodeURIComponent(token)}`;
         const ws = new WebSocket(wsUrl);
 
         ws.onmessage = (event) => {
             const data = JSON.parse(event.data);
             switch (data.type) {
+                case "credits":
+                    if (data.credits !== undefined) updateCachedCredits(Number(data.credits));
+                    break;
                 case "user_argument":
                     setMessages((prev) => [...prev, { role: "user", content: data.content, timestamp: Date.now() }]);
                     break;
@@ -166,7 +180,7 @@ export default function Debate() {
 
     const fetchDebateSession = useCallback(async (id: string) => {
         try {
-            const response = await fetch(`${env.backend}/debate/${id}`);
+            const response = await fetch(`${env.backend}/debate/${id}`, { headers: authJsonHeaders() });
             const data = await response.json();
             if (data.ok) {
                 setSession(data.session);
@@ -203,6 +217,7 @@ export default function Debate() {
                 body: JSON.stringify({ topic: topic.trim(), position }),
             });
             const data = await response.json();
+            if (data?.credits !== undefined) updateCachedCredits(Number(data.credits));
             if (data.ok) {
                 setDebateId(data.debateId);
                 setSession(data.session);
@@ -224,10 +239,11 @@ export default function Debate() {
         try {
             const response = await fetch(`${env.backend}/debate/${debateId}/argue`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: authJsonHeaders(),
                 body: JSON.stringify({ argument: arg }),
             });
             const data = await response.json();
+            if (data?.credits !== undefined) updateCachedCredits(Number(data.credits));
             if (!data.ok) setError(data.error);
         } catch (err) {
             setError((err as Error).message);
@@ -238,7 +254,7 @@ export default function Debate() {
         if (!debateId || isDebateEnded) return;
         if (!confirm(t.debate.surrenderConfirm)) return;
         try {
-            const response = await fetch(`${env.backend}/debate/${debateId}/surrender`, { method: "POST" });
+            const response = await fetch(`${env.backend}/debate/${debateId}/surrender`, { method: "POST", headers: authJsonHeaders() });
             const data = await response.json();
             if (data.ok) {
                 setIsDebateEnded(true);

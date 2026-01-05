@@ -3,10 +3,11 @@ import path from "path"
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib"
 import fontkit from "@pdf-lib/fontkit"
 import llm from "../../utils/llm/llm"
+import { estimateTokens, getDefaultModelName } from "../credits"
 import { normalizeTopic } from "../../utils/text/normalize"
 
 export type SmartNotesOptions = { topic?: any; notes?: string; filePath?: string }
-export type SmartNotesResult = { ok: boolean; file: string }
+export type SmartNotesResult = { ok: boolean; file: string; usage?: { inputTokens: number; outputTokens: number } }
 
 function sanitizeText(s: string) {
   if (!s) return ""
@@ -256,11 +257,17 @@ async function createSimplePDF(data: any) {
 
 export async function handleSmartNotes(opts: SmartNotesOptions): Promise<SmartNotesResult> {
   const input = await readInput(opts)
+  const model = getDefaultModelName()
+  const inputTokens = estimateTokens(input, model)
   const data = await generateNotes(input)
+  const outputText = [data.title, data.notes, data.summary, ...(data.questions || []), ...(data.answers || [])]
+    .filter(Boolean)
+    .join("\n")
+  const outputTokens = estimateTokens(outputText, model)
 
   const filled = await fillTemplateFormPDF(data)
-  if (filled) return { ok: true, file: filled }
+  if (filled) return { ok: true, file: filled, usage: { inputTokens, outputTokens } }
 
   const simple = await createSimplePDF(data)
-  return { ok: true, file: simple }
+  return { ok: true, file: simple, usage: { inputTokens, outputTokens } }
 }

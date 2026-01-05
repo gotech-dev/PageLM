@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo, useRef } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { quizStart, connectQuizStream, QuizEvent, err as getErr } from "../lib/api";
+import { quizStart, connectQuizStream, QuizEvent, err as getErr, updateCachedCredits } from "../lib/api";
 import LoadingIndicator from "../components/Chat/LoadingIndicator";
 import { useLanguage } from "../lib/LanguageContext";
 
@@ -88,7 +88,7 @@ export default function Quiz() {
 
   async function start(t: string) {
     const trimmed = t.trim();
-    if (!trimmed) return;
+    if (!trimmed || connecting) return;
     if (closeRef.current) closeRef.current();
 
     setQs([]);
@@ -100,7 +100,11 @@ export default function Quiz() {
 
     try {
       const s = await quizStart(trimmed);
+      if (s?.credits !== undefined) updateCachedCredits(Number(s.credits));
       const { close } = connectQuizStream(s.quizId, (ev: QuizEvent) => {
+        if (ev.type === "credits" && ev.credits !== undefined) {
+          updateCachedCredits(Number(ev.credits));
+        }
         if (ev.type === "quiz") {
           const arr = takeQuizArray(ev.quiz).map(q => ({
             ...q,
@@ -177,12 +181,13 @@ export default function Quiz() {
           </div>
         </div>
 
-        {qs.length === 0 && !connecting && !done && (
+        {qs.length === 0 && !done && (
           <TopicBar
             value={topic}
             onChange={setTopic}
             onStart={() => start(topic)}
             t={t}
+            connecting={connecting}
           />
         )}
 
@@ -229,7 +234,7 @@ export default function Quiz() {
   );
 }
 
-function TopicBar({ value, onChange, onStart, t }: any) {
+function TopicBar({ value, onChange, onStart, t, connecting }: any) {
   return (
     <div className="bg-stone-900/50 border border-zinc-800 rounded-2xl p-6 mb-8">
       <h2 className="text-lg font-medium text-white mb-4">{t.quiz.newTopic}</h2>
@@ -240,13 +245,19 @@ function TopicBar({ value, onChange, onStart, t }: any) {
           onChange={(e) => onChange(e.target.value)}
           placeholder={t.landing.promptPlaceholder}
           className="flex-1 bg-stone-950 border border-zinc-900 rounded-xl px-4 py-2 text-white outline-none focus:border-sky-500 transition-colors"
-          onKeyDown={(e) => e.key === "Enter" && onStart()}
+          onKeyDown={(e) => e.key === "Enter" && !connecting && onStart()}
+          disabled={connecting}
         />
         <button
           onClick={onStart}
-          className="px-6 py-2 bg-sky-600 hover:bg-sky-500 text-white font-medium rounded-xl transition-colors"
+          disabled={connecting || !value.trim()}
+          className={`px-6 py-2 font-medium rounded-xl transition-colors ${
+            connecting
+              ? "bg-sky-900 text-sky-200/70 cursor-not-allowed"
+              : "bg-sky-600 hover:bg-sky-500 text-white"
+          }`}
         >
-          {t.common.send}
+          {connecting ? t.quiz.building : t.common.send}
         </button>
       </div>
     </div>

@@ -24,7 +24,31 @@ export function isLoggedIn(): boolean {
   return !!localStorage.getItem('auth_token');
 }
 
-export type ChatStartResponse = { ok: true; chatId: string; stream: string };
+export const CREDITS_EVENT = "credits:update";
+export const CREDITS_INSUFFICIENT_EVENT = "credits:insufficient";
+
+export function updateCachedCredits(credits: number | undefined | null) {
+  const val = Number(credits);
+  if (!Number.isFinite(val)) return;
+
+  // sync localStorage user
+  const stored = localStorage.getItem("user");
+  if (stored) {
+    try {
+      const parsed = JSON.parse(stored);
+      parsed.credits = val;
+      localStorage.setItem("user", JSON.stringify(parsed));
+    } catch { /* ignore */ }
+  }
+
+  if (typeof window !== "undefined") {
+    try {
+      window.dispatchEvent(new CustomEvent<number>(CREDITS_EVENT, { detail: val }));
+    } catch { /* ignore */ }
+  }
+}
+
+export type ChatStartResponse = { ok: true; chatId: string; stream: string; credits?: number };
 export type ChatMessage = { role: "user" | "assistant"; content: string; at: number };
 export type ChatInfo = { id: string; title?: string; createdAt?: number };
 export type ChatsList = { ok: true; chats: ChatInfo[] };
@@ -33,9 +57,9 @@ export type ChatJSONBody = { q: string; chatId?: string; fastMode?: boolean };
 export type ChatPhase = "upload_start" | "upload_done" | "generating";
 export type FlashCard = { q: string; a: string; tags?: string[] };
 export type Question = { id: number; question: string; options: string[]; correct: number; hint: string; explanation: string; imageHtml?: string; };
-export type QuizStartResponse = { ok: true; quizId: string; stream: string }
-export type QuizEvent = { type: "ready" | "phase" | "quiz" | "done" | "error" | "ping"; quizId?: string; value?: string; quiz?: unknown; error?: string; t?: number }
-export type SmartNotesStart = { ok: true; noteId: string; stream: string }
+export type QuizStartResponse = { ok: true; quizId: string; stream: string; credits?: number }
+export type QuizEvent = { type: "ready" | "phase" | "quiz" | "done" | "error" | "ping" | "credits"; quizId?: string; value?: string; quiz?: unknown; error?: string; t?: number; credits?: number }
+export type SmartNotesStart = { ok: true; noteId: string; stream: string; credits?: number; pendingCredits?: number; pending?: boolean }
 export type CompanionHistoryEntry = { role: "user" | "assistant"; content: string }
 export type CompanionAnswer = { topic: string; answer: string; flashcards: FlashCard[] }
 export type CompanionAskResponse = { ok: boolean; companion: CompanionAnswer }
@@ -50,6 +74,7 @@ export type ExamEvent =
   | { type: "ready"; runId: string }
   | { type: "phase"; value: string; examId?: string }
   | { type: "exam"; examId: string; payload: Question[] }
+  | { type: "credits"; credits: number }
   | { type: "done" }
   | { type: "error"; examId?: string; error: string };
 export type PodcastEvent =
@@ -68,6 +93,7 @@ export type SmartNotesEvent =
   | { type: "done" }
   | { type: "error"; error: string }
   | { type: "ping"; t: number }
+  | { type: "credits"; credits: number; pending?: boolean; pendingCredits?: number; spent?: number; inputTokens?: number; outputTokens?: number }
 export type StudyMaterials = {
   summary: string;
   keyPoints: string[];
@@ -96,6 +122,7 @@ export type ChatEvent =
   | { type: "phase"; value: ChatPhase }
   | { type: "file"; filename: string; mime: string }
   | { type: "answer"; answer: AnswerPayload }
+  | { type: "credits"; credits: number }
   | { type: "done" }
   | { type: "error"; error: string };
 
@@ -118,6 +145,19 @@ async function req<T = unknown>(
     const r = await fetch(url, { signal, ...rest });
     if (!r.ok) {
       const txt = await r.text().catch(() => "");
+      const bodyLower = txt.toLowerCase();
+
+      if (r.status === 402 || bodyLower.includes("insufficient_credits")) {
+        // Broadcast zero credits so UI can surface the out-of-credits notice even on failed requests
+        updateCachedCredits(0);
+        try {
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(new CustomEvent<number>(CREDITS_EVENT, { detail: 0 }));
+            window.dispatchEvent(new CustomEvent<void>(CREDITS_INSUFFICIENT_EVENT));
+          }
+        } catch { /* ignore */ }
+      }
+
       throw new Error(`http ${r.status}: ${txt || r.statusText}`);
     }
     const ct = r.headers.get("content-type") || "";
@@ -148,11 +188,13 @@ function wsURL(path: string) {
 }
 
 export async function chatJSON(body: ChatJSONBody) {
-  return req<ChatStartResponse>(`${env.backend}/chat`, {
+  const res = await req<ChatStartResponse>(`${env.backend}/chat`, {
     method: "POST",
     headers: jsonHeaders({}),
     body: JSON.stringify(body),
   });
+  updateCachedCredits(res?.credits);
+  return res;
 }
 
 export async function chatMultipart(q: string, files: File[], chatId?: string, fastMode?: boolean) {
@@ -175,6 +217,9 @@ export function connectChatStream(chatId: string, onEvent: (ev: ChatEvent) => vo
   ws.onmessage = (m) => {
     try {
       const data = JSON.parse(m.data as string) as ChatEvent;
+      if ((data as any)?.credits !== undefined) {
+        updateCachedCredits((data as any).credits);
+      }
       onEvent(data);
     } catch { }
   };
@@ -307,7 +352,7 @@ export async function getExams() {
 }
 
 export async function startExam(examId: string) {
-  return req<{ ok: true; runId: string; stream: string }>(
+  const res = await req<{ ok: true; runId: string; stream: string; credits?: number }>(
     `${env.backend}/exam`,
     {
       method: "POST",
@@ -315,6 +360,8 @@ export async function startExam(examId: string) {
       body: JSON.stringify({ examId }),
     }
   )
+  updateCachedCredits((res as any)?.credits);
+  return res;
 }
 
 export function connectExamStream(runId: string, onEvent: (ev: ExamEvent) => void) {
@@ -322,7 +369,9 @@ export function connectExamStream(runId: string, onEvent: (ev: ExamEvent) => voi
   const ws = new WebSocket(url)
   ws.onmessage = (m) => {
     try {
-      onEvent(JSON.parse(m.data as string) as ExamEvent)
+      const ev = JSON.parse(m.data as string) as ExamEvent
+      if ((ev as any)?.credits !== undefined) updateCachedCredits((ev as any).credits)
+      onEvent(ev)
     } catch { }
   }
   ws.onerror = () => onEvent({ type: "error", error: "stream_error" })
@@ -330,11 +379,13 @@ export function connectExamStream(runId: string, onEvent: (ev: ExamEvent) => voi
 }
 
 export async function smartnotesStart(input: { topic?: string; notes?: string; filePath?: string }) {
-  return req<SmartNotesStart>(`${env.backend}/smartnotes`, {
+  const res = await req<SmartNotesStart>(`${env.backend}/smartnotes`, {
     method: "POST",
     headers: jsonHeaders(),
     body: JSON.stringify(input),
   });
+  updateCachedCredits(res?.credits);
+  return res;
 }
 
 export function connectSmartnotesStream(noteId: string, onEvent: (ev: SmartNotesEvent) => void) {
@@ -342,7 +393,9 @@ export function connectSmartnotesStream(noteId: string, onEvent: (ev: SmartNotes
   const ws = new WebSocket(url);
   ws.onmessage = (m) => {
     try {
-      onEvent(JSON.parse(m.data as string) as SmartNotesEvent);
+      const ev = JSON.parse(m.data as string) as SmartNotesEvent;
+      if ((ev as any)?.credits !== undefined) updateCachedCredits((ev as any).credits);
+      onEvent(ev);
     } catch { }
   };
   ws.onerror = () => onEvent({ type: "error", error: "stream_error" });
@@ -358,12 +411,13 @@ export function flashcards(topic: string) {
 }
 
 export async function quizStart(topic: string) {
-  return req<QuizStartResponse>(`${env.backend}/quiz`, {
+  const res = await req<QuizStartResponse>(`${env.backend}/quiz`, {
     method: "POST",
     headers: jsonHeaders({}),
     body: JSON.stringify({ topic })
-  }
-  )
+  })
+  updateCachedCredits(res?.credits)
+  return res
 }
 
 export async function podcastStart(payload: { topic: string }) {
@@ -405,7 +459,9 @@ export function connectQuizStream(quizId: string, onEvent: (ev: QuizEvent) => vo
   const url = wsURL(`/ws/quiz?quizId=${encodeURIComponent(quizId)}`);
   const ws = new WebSocket(url); ws.onmessage = m => {
     try {
-      onEvent(JSON.parse(m.data as string) as QuizEvent)
+      const ev = JSON.parse(m.data as string) as QuizEvent
+      if ((ev as any)?.credits !== undefined) updateCachedCredits((ev as any).credits)
+      onEvent(ev)
     } catch { }
   }; ws.onerror = () => onEvent({ type: "error", error: "stream_error" } as any); return { ws, close: () => { try { ws.close() } catch { } } }
 }
@@ -601,6 +657,7 @@ export type DebateStartResponse = {
     position: "for" | "against";
     createdAt: number;
   };
+  credits?: number;
   stream: string;
   error?: string;
 }
@@ -618,45 +675,52 @@ export type DebateSession = {
 }
 
 export async function startDebate(topic: string, position: "for" | "against") {
-  return req<DebateStartResponse>(`${env.backend}/debate/start`, {
+  const res = await req<DebateStartResponse>(`${env.backend}/debate/start`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: jsonHeaders({}),
     body: JSON.stringify({ topic, position }),
     timeout: 30000,
   })
+  updateCachedCredits(res?.credits)
+  return res
 }
 
 export async function submitDebateArgument(debateId: string, argument: string) {
-  return req<{ ok: boolean; message: string; error?: string }>(`${env.backend}/debate/${encodeURIComponent(debateId)}/argue`, {
+  const res = await req<{ ok: boolean; message: string; credits?: number; error?: string }>(`${env.backend}/debate/${encodeURIComponent(debateId)}/argue`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: jsonHeaders({}),
     body: JSON.stringify({ argument }),
     timeout: 120000,
   })
+  updateCachedCredits((res as any)?.credits)
+  return res
 }
 
 export async function getDebateSession(debateId: string) {
   return req<{ ok: boolean; session: DebateSession; error?: string }>(`${env.backend}/debate/${encodeURIComponent(debateId)}`, {
     method: "GET",
+    headers: authHeaders(),
   })
 }
 
 export async function listDebates() {
   return req<{ ok: boolean; debates: Array<any>; error?: string }>(`${env.backend}/debates`, {
     method: "GET",
+    headers: authHeaders(),
   })
 }
 
 export async function deleteDebate(debateId: string) {
   return req<{ ok: boolean; message: string; error?: string }>(`${env.backend}/debate/${encodeURIComponent(debateId)}`, {
     method: "DELETE",
+    headers: authHeaders(),
   })
 }
 
 export async function surrenderDebate(debateId: string) {
   return req<{ ok: boolean; message: string; error?: string }>(`${env.backend}/debate/${encodeURIComponent(debateId)}/surrender`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: jsonHeaders({}),
   })
 }
 
@@ -674,11 +738,40 @@ export type DebateAnalysis = {
 export async function analyzeDebate(debateId: string) {
   return req<{ ok: boolean; analysis: DebateAnalysis; session: DebateSession; error?: string }>(`${env.backend}/debate/${encodeURIComponent(debateId)}/analyze`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: jsonHeaders({}),
     timeout: 60000,
+  })
+}
+
+export type CreditHistoryEntry = {
+  id: string;
+  taskType: string;
+  creditsUsed: number;
+  inputTokens: number;
+  outputTokens: number;
+  model: string | null;
+  createdAt: number;
+  meta?: any;
+}
+
+export async function getCreditHistory(limit = 50) {
+  return req<{ ok: boolean; entries: CreditHistoryEntry[]; error?: string }>(`${env.backend}/credits/history?limit=${limit}`, {
+    method: "GET",
+    headers: authHeaders(),
   })
 }
 
 export function err(e: unknown) {
   return e instanceof Error ? e.message : String(e);
+}
+
+// Fetch current user info (including credits) using auth token
+export async function getCurrentUser() {
+  return req<{ ok: boolean; user: { id: string; email: string; name: string; credits?: number } }>(
+    `${env.backend}/auth/me`,
+    {
+      method: "GET",
+      headers: authHeaders(),
+    }
+  )
 }

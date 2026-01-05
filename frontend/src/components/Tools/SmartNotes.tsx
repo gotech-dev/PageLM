@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { smartnotesStart, connectSmartnotesStream, type SmartNotesEvent } from "../../lib/api"
+import { smartnotesStart, connectSmartnotesStream, type SmartNotesEvent, updateCachedCredits } from "../../lib/api"
 import { useLanguage } from "../../lib/LanguageContext"
 
 export default function SmartNotes() {
@@ -18,8 +18,10 @@ export default function SmartNotes() {
     setFilePath(null)
 
     try {
-      const { noteId } = await smartnotesStart({ topic })
+      const { noteId, credits } = await smartnotesStart({ topic })
+      if (credits !== undefined) updateCachedCredits(Number(credits))
       const { close } = connectSmartnotesStream(noteId, (ev: SmartNotesEvent) => {
+        if (ev.type === "credits" && ev.credits !== undefined) updateCachedCredits(Number(ev.credits))
         if (ev.type === "phase") setStatus(`${ev.value}`)
         if (ev.type === "file") { setFilePath(ev.file); setStatus(st.ready) }
         if (ev.type === "done") { setStatus(st.done); close(); setBusy(false) }

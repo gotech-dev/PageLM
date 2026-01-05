@@ -6,7 +6,8 @@ import { execDirect } from "../../agents/runtime"
 import { normalizeTopic } from "../../utils/text/normalize"
 
 export type AskCard = { q: string; a: string; tags?: string[] }
-export type AskPayload = { topic: string; answer: string; flashcards: AskCard[] }
+export type TokenUsage = { inputTokens?: number; outputTokens?: number; totalTokens?: number }
+export type AskPayload = { topic: string; answer: string; flashcards: AskCard[]; usage?: TokenUsage }
 
 function toText(out: any): string {
   if (!out) return ""
@@ -36,6 +37,60 @@ function extractFirstJsonObject(s: string): string {
 
 function tryParse<T = unknown>(s: string): T | null {
   try { return JSON.parse(s) as T } catch { return null }
+}
+
+function toNumberOrUndefined(v: any): number | undefined {
+  const n = Number(v)
+  return Number.isFinite(n) && n >= 0 ? n : undefined
+}
+
+function extractUsageMetadata(res: any): TokenUsage | undefined {
+  const sources = [
+    res?.usage_metadata,
+    res?.usage,
+    res?.response_metadata?.tokenUsage,
+    res?.response_metadata?.usageMetadata,
+    res?.response_metadata?.tokenMetadata,
+    res?.response_metadata,
+    res?.additional_kwargs?.usage,
+  ]
+
+  for (const src of sources) {
+    if (!src || typeof src !== "object") continue
+
+    const input = toNumberOrUndefined(
+      src.input_tokens ??
+      src.prompt_tokens ??
+      src.promptTokens ??
+      src.promptTokenCount ??
+      src.inputTokenCount ??
+      src.input_tokens_count
+    )
+    const output = toNumberOrUndefined(
+      src.output_tokens ??
+      src.completion_tokens ??
+      src.completionTokens ??
+      src.candidatesTokenCount ??
+      src.outputTokenCount ??
+      src.output_tokens_count ??
+      src.generated_tokens
+    )
+    const total =
+      toNumberOrUndefined(src.total_tokens ?? src.totalTokens ?? src.totalTokenCount ?? src.total) ??
+      toNumberOrUndefined(src.totalTokenCount)
+
+    if (input !== undefined || output !== undefined || total !== undefined) {
+      const derivedOutput = output ?? (total !== undefined && input !== undefined ? Math.max(total - input, 0) : undefined)
+      const derivedTotal = total ?? (input !== undefined && derivedOutput !== undefined ? input + derivedOutput : undefined)
+      return {
+        inputTokens: input,
+        outputTokens: derivedOutput,
+        totalTokens: derivedTotal,
+      }
+    }
+  }
+
+  return undefined
 }
 
 export const FAST_SYSTEM_PROMPT = `
@@ -289,6 +344,16 @@ const readCache = (k: any) => { const f = path.join(cacheDir, keyOf(k) + ".json"
 const writeCache = (k: any, v: any) => { const f = path.join(cacheDir, keyOf(k) + ".json"); fs.writeFileSync(f, JSON.stringify(v)) }
 
 type HistoryMessage = { role: string; content: any }
+type HandleAskParams = {
+  q: string
+  namespace?: string
+  history?: any[]
+  fastMode?: boolean
+  jsonMode?: boolean
+  onChunk?: (c: string) => void
+  context?: string
+  k?: number
+}
 
 function toMessageContent(content: any): string {
   if (content == null) return ""
@@ -318,6 +383,20 @@ function toConversationHistory(history?: HistoryMessage[]): Array<{ role: string
     out.push({ role: msg.role, content: toMessageContent(msg.content) })
   }
   return out
+}
+
+export async function buildAskContext(question: string, nsFinal: string, fastMode = false, k = 6): Promise<{ context: string; safeQuestion: string; docCount: number }> {
+  const safeQuestion = normalizeTopic(question)
+  if (fastMode) return { context: "NO_CONTEXT", safeQuestion, docCount: 0 }
+
+  const rag = await execDirect({
+    agent: "researcher",
+    plan: { steps: [{ tool: "rag.search", input: { q: safeQuestion, ns: nsFinal, k }, timeoutMs: 8000, retries: 1 }] },
+    ctx: { ns: nsFinal }
+  })
+  const ctxDocs = Array.isArray(rag?.result) ? (rag.result as Array<{ text?: string }>) : []
+  const context = ctxDocs.map(d => d?.text || "").filter(t => t.trim()).join("\n\n") || "NO_CONTEXT"
+  return { context, safeQuestion, docCount: ctxDocs.length }
 }
 
 type AskWithContextOptions = {
@@ -357,12 +436,14 @@ export async function askWithContext(opts: AskWithContextOptions): Promise<AskPa
   })
 
   let draft = ""
+  let rawRes: any
   if (opts.onChunk) {
     draft = await llm.stream(messages as any, opts.onChunk)
   } else {
-    const res = await llm.call(messages as any)
-    draft = toText(res).trim()
+    rawRes = await llm.call(messages as any)
+    draft = toText(rawRes).trim()
   }
+  const usage = rawRes ? extractUsageMetadata(rawRes) : undefined
 
   const jsonStr = jsonMode ? (extractFirstJsonObject(draft) || draft) : ""
   const parsed = jsonMode ? tryParse<any>(jsonStr) : null
@@ -373,49 +454,57 @@ export async function askWithContext(opts: AskWithContextOptions): Promise<AskPa
         topic: typeof parsed.topic === "string" ? parsed.topic : topic,
         answer: typeof parsed.answer === "string" ? parsed.answer : "",
         flashcards: Array.isArray(parsed.flashcards) ? (parsed.flashcards as AskCard[]) : [],
+        ...(usage ? { usage } : {}),
       }
-      : { topic, answer: draft, flashcards: [] }
+      : { topic, answer: draft, flashcards: [], ...(usage ? { usage } : {}) }
 
   writeCache(ck, out)
   return out
 }
 
 export async function handleAsk(
-  q: string | { q: string; namespace?: string; history?: any[]; fastMode?: boolean; jsonMode?: boolean; onChunk?: (c: string) => void },
+  q: string | HandleAskParams,
   ns?: string,
   k = 6,
   historyArg?: any[],
   fastModeArg?: boolean,
   onChunk?: (c: string) => void,
-  jsonMode?: boolean
+  jsonMode?: boolean,
+  contextOverride?: string
 ): Promise<AskPayload> {
   if (typeof q === "object" && q !== null) {
-    const params = q as any
-    return handleAsk(params.q, params.namespace ?? ns, k, params.history ?? historyArg, params.fastMode ?? fastModeArg, params.onChunk ?? onChunk, params.jsonMode ?? jsonMode)
+    const params = q as HandleAskParams
+    return handleAsk(
+      params.q,
+      params.namespace ?? ns,
+      params.k ?? k,
+      params.history ?? historyArg,
+      params.fastMode ?? fastModeArg,
+      params.onChunk ?? onChunk,
+      params.jsonMode ?? jsonMode,
+      params.context ?? contextOverride
+    )
   }
 
   const questionRaw = typeof q === "string" ? q : String(q ?? "")
-  const safeQ = normalizeTopic(questionRaw)
   const nsFinal = typeof ns === "string" && ns.trim() ? ns : "pagelm"
   const isFast = !!fastModeArg
-  console.log(`[handleAsk] isFast: ${isFast}, safeQ: ${safeQ}`)
+  const providedContext = typeof contextOverride === "string" ? contextOverride : undefined
+  console.log(`[handleAsk] isFast: ${isFast}, safeQ: ${normalizeTopic(questionRaw)}`)
 
-  let ctx = "NO_CONTEXT"
-  if (!isFast) {
-    const rag = await execDirect({
-      agent: "researcher",
-      plan: { steps: [{ tool: "rag.search", input: { q: safeQ, ns: nsFinal, k }, timeoutMs: 8000, retries: 1 }] },
-      ctx: { ns: nsFinal }
-    })
-    // execDirect returns { trace, result, threadId } - result contains the actual documents
-    const ctxDocs = Array.isArray(rag?.result) ? (rag.result as Array<{ text?: string }>) : []
-    console.log(`[handleAsk] RAG search ns="${nsFinal}", found ${ctxDocs.length} docs`)
-    ctx = ctxDocs.map(d => d?.text || "").filter(t => t.trim()).join("\n\n") || "NO_CONTEXT"
-    if (ctx !== "NO_CONTEXT") {
-      console.log(`[handleAsk] Context preview: ${ctx.slice(0, 200)}...`)
+  let safeQ = normalizeTopic(questionRaw)
+  let ctx = providedContext ?? "NO_CONTEXT"
+  if (providedContext === undefined) {
+    const { context, safeQuestion, docCount } = await buildAskContext(questionRaw, nsFinal, isFast, k)
+    ctx = context
+    safeQ = safeQuestion
+    if (!isFast) {
+      console.log(`[handleAsk] RAG search ns="${nsFinal}", found ${docCount} docs`)
+      if (ctx !== "NO_CONTEXT") {
+        console.log(`[handleAsk] Context preview: ${ctx.slice(0, 200)}...`)
+      }
     }
   }
-
 
   const topic = guessTopic(safeQ) || "General"
   const defaultSystemPrompt = isFast ? FAST_SYSTEM_PROMPT : BASE_SYSTEM_PROMPT

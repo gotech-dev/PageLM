@@ -25,11 +25,16 @@ export function makeModels(): Pair {
   const mod = pick(config.provider)
   const llm = mod.makeLLM(config)
 
+  // Choose embeddings provider independently (fall back to LLM provider, then openai)
+  const embProvider = config.embeddings_provider || config.provider
+  const embMod = pick(embProvider)
+
   let embeddings: EmbeddingsLike
   try {
-    embeddings = mod.makeEmbeddings(config)
-  } catch {
-    const d = pick(config.embeddings_provider || 'openai')
+    embeddings = embMod.makeEmbeddings(config)
+  } catch (err) {
+    console.warn('[llm] embeddings init failed, falling back to openai:', err?.message || err)
+    const d = pick('openai')
     embeddings = d.makeEmbeddings(config)
   }
 

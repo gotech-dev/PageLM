@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import PromptRail from "../components/Landing/PromptRail";
 import PromptBox from "../components/Landing/PromptBox";
 import ExploreTopics from "../components/Landing/ExploreTopics";
-import { chatMultipart, chatJSON } from "../lib/api";
+import { chatMultipart, chatJSON, updateCachedCredits } from "../lib/api";
 import { useLanguage } from "../lib/LanguageContext";
 
 export default function Landing() {
@@ -54,6 +54,11 @@ export default function Landing() {
       }
       const r = await chatJSON({ q, fastMode });
       navigate(`/chat?chatId=${encodeURIComponent(r.chatId)}&q=${encodeURIComponent(q)}&fastMode=${fastMode}`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.toLowerCase().includes("insufficient_credits") || msg.includes("402")) {
+        updateCachedCredits(0);
+      }
     } finally {
       setBusy(false);
     }

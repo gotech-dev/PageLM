@@ -1,7 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { env } from "../config/env";
-import { chatJSON, getChatDetail, type FlashCard, createFlashcard, listFlashcards, deleteFlashcard, getChats, type ChatMessage, type SavedFlashcard, podcastStart } from "../lib/api";
+import {
+  chatJSON,
+  getChatDetail,
+  type FlashCard,
+  createFlashcard,
+  listFlashcards,
+  deleteFlashcard,
+  getChats,
+  type ChatMessage,
+  type SavedFlashcard,
+  podcastStart,
+  updateCachedCredits,
+} from "../lib/api";
 import MarkdownView from "../components/Chat/MarkdownView";
 import ActionRow from "../components/Chat/ActionRow";
 import FlashCards from "../components/Chat/FlashCards";
@@ -13,33 +25,66 @@ import LoadingIndicator from "../components/Chat/LoadingIndicator";
 import { useCompanion } from "../components/Companion/CompanionProvider";
 import { useLanguage } from "../lib/LanguageContext";
 
-type BagItem = { id: string; kind: "flashcard" | "note"; title: string; content: string };
+type BagItem = {
+  id: string;
+  kind: "flashcard" | "note";
+  title: string;
+  content: string;
+};
 
 function extractFirstJsonObject(s: string): string {
-  let depth = 0, start = -1;
+  let depth = 0,
+    start = -1;
   for (let i = 0; i < s.length; i++) {
     const ch = s[i];
-    if (ch === "{") { if (depth === 0) start = i; depth++; }
-    else if (ch === "}") { depth--; if (depth === 0 && start !== -1) return s.slice(start, i + 1); }
+    if (ch === "{") {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (ch === "}") {
+      depth--;
+      if (depth === 0 && start !== -1) return s.slice(start, i + 1);
+    }
   }
   return "";
 }
 
-function normalizePayload(payload: unknown): { md: string; flashcards: FlashCard[]; topic?: string } {
+function normalizePayload(payload: unknown): {
+  md: string;
+  flashcards: FlashCard[];
+  topic?: string;
+} {
   if (typeof payload === "string") {
     const s = payload.trim();
     if (s.startsWith("{") && s.endsWith("}")) {
-      try { const obj = JSON.parse(s); return { md: String(obj?.answer || ""), flashcards: Array.isArray(obj?.flashcards) ? obj.flashcards : [], topic: typeof obj?.topic === "string" ? obj.topic : undefined }; } catch { }
+      try {
+        const obj = JSON.parse(s);
+        return {
+          md: String(obj?.answer || ""),
+          flashcards: Array.isArray(obj?.flashcards) ? obj.flashcards : [],
+          topic: typeof obj?.topic === "string" ? obj.topic : undefined,
+        };
+      } catch {}
     }
     const inner = extractFirstJsonObject(s);
     if (inner) {
-      try { const obj = JSON.parse(inner); return { md: String(obj?.answer || ""), flashcards: Array.isArray(obj?.flashcards) ? obj.flashcards : [], topic: typeof obj?.topic === "string" ? obj.topic : undefined }; } catch { }
+      try {
+        const obj = JSON.parse(inner);
+        return {
+          md: String(obj?.answer || ""),
+          flashcards: Array.isArray(obj?.flashcards) ? obj.flashcards : [],
+          topic: typeof obj?.topic === "string" ? obj.topic : undefined,
+        };
+      } catch {}
     }
     return { md: s, flashcards: [] };
   }
   if (payload && typeof payload === "object") {
     const o = payload as any;
-    return { md: String(o?.answer || o?.html || ""), flashcards: Array.isArray(o?.flashcards) ? o.flashcards : [], topic: typeof o?.topic === "string" ? o.topic : undefined };
+    return {
+      md: String(o?.answer || o?.html || ""),
+      flashcards: Array.isArray(o?.flashcards) ? o.flashcards : [],
+      topic: typeof o?.topic === "string" ? o.topic : undefined,
+    };
   }
   return { md: "", flashcards: [] };
 }
@@ -56,7 +101,14 @@ export default function Chat() {
   const state = (location?.state || {}) as {
     chatId?: string;
     q?: string;
-    answer?: string | { html?: string; answer?: string; flashcards?: FlashCard[]; topic?: string };
+    answer?:
+      | string
+      | {
+          html?: string;
+          answer?: string;
+          flashcards?: FlashCard[];
+          topic?: string;
+        };
     flashcards?: FlashCard[];
   };
 
@@ -70,9 +122,15 @@ export default function Chat() {
   const [cards, setCards] = useState<FlashCard[]>([]);
   const [bagOpen, setBagOpen] = useState(false);
   const [bag, setBag] = useState<BagItem[]>([]);
-  const [selected, setSelected] = useState<{ text: string; x: number; y: number } | null>(null);
+  const [selected, setSelected] = useState<{
+    text: string;
+    x: number;
+    y: number;
+  } | null>(null);
   const [busy, setBusy] = useState(false);
-  const [connecting, setConnecting] = useState<boolean>(!!(initialChatId || initialQuestion));
+  const [connecting, setConnecting] = useState<boolean>(
+    !!(initialChatId || initialQuestion)
+  );
   const [awaitingAnswer, setAwaitingAnswer] = useState<boolean>(false);
   const [topic, setTopic] = useState<string>("");
   const { setDocument } = useCompanion();
@@ -94,10 +152,15 @@ export default function Chat() {
           const res = await getChats();
           const list = Array.isArray(res?.chats) ? res.chats : [];
           if (list.length) {
-            const latest = [...list].sort((a: any, b: any) => (b.at || 0) - (a.at || 0))[0];
+            const latest = [...list].sort(
+              (a: any, b: any) => (b.at || 0) - (a.at || 0)
+            )[0];
             if (latest?.id) {
               setChatId(latest.id);
-              navigate(`/chat?chatId=${encodeURIComponent(latest.id)}`, { replace: true, state: { chatId: latest.id } });
+              navigate(`/chat?chatId=${encodeURIComponent(latest.id)}`, {
+                replace: true,
+                state: { chatId: latest.id },
+              });
             } else {
               navigate("/", { replace: true });
             }
@@ -119,15 +182,24 @@ export default function Chat() {
     if (state.answer) {
       const init = normalizePayload(state.answer);
       const seed: ChatMessage[] = [];
-      if (initialQuestion) seed.push({ role: "user", content: initialQuestion, at: Date.now() });
-      if (init.md) seed.push({ role: "assistant", content: init.md, at: Date.now() });
+      if (initialQuestion)
+        seed.push({ role: "user", content: initialQuestion, at: Date.now() });
+      if (init.md)
+        seed.push({ role: "assistant", content: init.md, at: Date.now() });
       if (seed.length) setMessages(seed);
-      if ((init.flashcards?.length || state.flashcards?.length)) setCards(init.flashcards?.length ? init.flashcards : (state.flashcards || []));
+      if (init.flashcards?.length || state.flashcards?.length)
+        setCards(
+          init.flashcards?.length ? init.flashcards : state.flashcards || []
+        );
       if (init.topic) setTopic(init.topic || "");
       else if (init.md) setTopic(deriveTopicFromMarkdown(init.md));
     } else {
       if (initialQuestion) {
-        setMessages((prev) => (Array.isArray(prev) && prev.length ? prev : [{ role: "user", content: initialQuestion, at: Date.now() }]));
+        setMessages((prev) =>
+          Array.isArray(prev) && prev.length
+            ? prev
+            : [{ role: "user", content: initialQuestion, at: Date.now() }]
+        );
         setAwaitingAnswer(true);
       }
     }
@@ -139,10 +211,14 @@ export default function Chat() {
       .then((res) => {
         if (res?.ok && Array.isArray(res.messages)) {
           const normalized = res.messages.map((m) =>
-            m.role === "assistant" ? { ...m, content: normalizePayload((m as any).content).md } : m
+            m.role === "assistant"
+              ? { ...m, content: normalizePayload((m as any).content).md }
+              : m
           );
           setMessages(normalized);
-          const hasAssistantMsg = normalized.some(m => m.role === "assistant");
+          const hasAssistantMsg = normalized.some(
+            (m) => m.role === "assistant"
+          );
           if (hasAssistantMsg) setAwaitingAnswer(false);
           for (let i = normalized.length - 1; i >= 0; i--) {
             const raw = (res.messages[i] as any)?.content;
@@ -156,44 +232,79 @@ export default function Chat() {
           }
         }
       })
-      .catch(() => { });
+      .catch(() => {});
   }, [chatId]);
 
   useEffect(() => {
     if (!chatId) return;
-    const wsUrl = (env.backend || window.location.origin).replace(/^http/, "ws") + `/ws/chat?chatId=${encodeURIComponent(chatId)}`;
+    const wsUrl =
+      (env.backend || window.location.origin).replace(/^http/, "ws") +
+      `/ws/chat?chatId=${encodeURIComponent(chatId)}`;
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
     ws.onopen = () => setConnecting(false);
     ws.onmessage = (ev) => {
       try {
         const m = JSON.parse(ev.data);
+        if (m?.type === "credits" && m?.credits !== undefined) {
+          const remaining = Number(m.credits);
+          updateCachedCredits(remaining);
+          return;
+        }
         if (m?.type === "answer") {
           const norm = normalizePayload(m.answer);
-          setMessages((prev) => ([...(Array.isArray(prev) ? prev : []), { role: "assistant", content: norm.md, at: Date.now() }]));
+          setMessages((prev) => [
+            ...(Array.isArray(prev) ? prev : []),
+            { role: "assistant", content: norm.md, at: Date.now() },
+          ]);
           if (norm.flashcards.length) setCards(norm.flashcards);
           if (norm.topic) setTopic(norm.topic);
-          else if (norm.md) setTopic((t) => t || deriveTopicFromMarkdown(norm.md));
+          else if (norm.md)
+            setTopic((t) => t || deriveTopicFromMarkdown(norm.md));
           setAwaitingAnswer(false);
-          setTimeout(() => scrollRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }), 0);
+          setTimeout(
+            () =>
+              scrollRef.current?.scrollIntoView({
+                behavior: "smooth",
+                block: "end",
+              }),
+            0
+          );
         }
-      } catch { }
+      } catch {}
     };
-    return () => { try { ws.close(); } catch { } wsRef.current = null; };
+    return () => {
+      try {
+        ws.close();
+      } catch {}
+      wsRef.current = null;
+    };
   }, [chatId]);
 
   useEffect(() => {
     const onSel = () => {
       const sel = window.getSelection();
-      if (!sel || sel.isCollapsed || sel.rangeCount === 0) { setSelected(null); return; }
+      if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
+        setSelected(null);
+        return;
+      }
       const r = sel.getRangeAt(0);
       const rect = r.getBoundingClientRect();
       if (!rect || !r.toString().trim()) return;
-      setSelected({ text: r.toString().trim(), x: rect.left + rect.width / 2 - 60 + window.scrollX, y: rect.bottom + window.scrollY });
+      setSelected({
+        text: r.toString().trim(),
+        x: rect.left + rect.width / 2 - 60 + window.scrollX,
+        y: rect.bottom + window.scrollY,
+      });
     };
     const onDocClick = (e: any) => {
       const n = e.target as Node;
-      if (selPopupRef.current && !selPopupRef.current.contains(n) && !window.getSelection()?.toString().trim()) setSelected(null);
+      if (
+        selPopupRef.current &&
+        !selPopupRef.current.contains(n) &&
+        !window.getSelection()?.toString().trim()
+      )
+        setSelected(null);
     };
     document.addEventListener("mouseup", onSel);
     document.addEventListener("keyup", onSel);
@@ -206,10 +317,18 @@ export default function Chat() {
   }, []);
 
   useEffect(() => {
-    setTimeout(() => scrollRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }), 0);
+    setTimeout(
+      () =>
+        scrollRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }),
+      0
+    );
   }, [Array.isArray(messages) ? messages.length : 0]);
 
-  const addToBag = async (kind: BagItem["kind"], title: string, content: string) => {
+  const addToBag = async (
+    kind: BagItem["kind"],
+    title: string,
+    content: string
+  ) => {
     const k = keyFor(kind, title, content);
     if (seenRef.current.has(k)) return;
     try {
@@ -219,12 +338,22 @@ export default function Chat() {
         tag: kind === "note" ? "note" : "core",
       });
       setBag((b) => [
-        { id: flashcard.id, kind, title: flashcard.question, content: flashcard.answer },
+        {
+          id: flashcard.id,
+          kind,
+          title: flashcard.question,
+          content: flashcard.answer,
+        },
         ...b,
       ]);
       seenRef.current.add(k);
     } catch {
-      const local = { id: `${Date.now()}-${Math.random()}`, kind, title, content };
+      const local = {
+        id: `${Date.now()}-${Math.random()}`,
+        kind,
+        title,
+        content,
+      };
       setBag((b) => [local, ...b]);
       seenRef.current.add(k);
     }
@@ -234,8 +363,10 @@ export default function Chat() {
     try {
       const res = await listFlashcards();
       const items = res.flashcards || [];
-      await Promise.all(items.map((c) => deleteFlashcard(c.id).catch(() => { })));
-    } catch { }
+      await Promise.all(
+        items.map((c) => deleteFlashcard(c.id).catch(() => {}))
+      );
+    } catch {}
     setBag([]);
     seenRef.current.clear();
   };
@@ -267,6 +398,8 @@ export default function Chat() {
     try {
       const r = await chatJSON({ q: text, chatId: chatId || undefined, fastMode });
       if (r?.chatId && r.chatId !== chatId) setChatId(r.chatId);
+    } catch (err) {
+      setAwaitingAnswer(false);
     } finally {
       setBusy(false);
       setTimeout(() => scrollRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }), 0);
@@ -302,77 +435,79 @@ export default function Chat() {
   const list = Array.isArray(messages) ? messages : [];
 
   return (
-    <div className="flex flex-col min-h-screen w-full px-4 lg:pl-28 lg:pr-4">
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-8 mt-20 lg:mt-6 mb-16">
-        <div className="flex-1 pr-6">
-          <div className="w-full max-w-5xl mx-auto p-4 pt-2 pb-28">
-            <div className="space-y-6">
-              {list.map((m, i) => {
-                const userBubble = "inline-block max-w-[85%] bg-stone-900/70 border border-zinc-800 rounded-2xl px-4 py-3";
-                if (m.role === "assistant") {
+    <>
+      <div className="flex flex-col min-h-screen w-full px-4 lg:pl-28 lg:pr-4">
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-8 mt-20 lg:mt-6 mb-16">
+          <div className="flex-1 pr-6">
+            <div className="w-full max-w-5xl mx-auto p-4 pt-2 pb-28">
+              <div className="space-y-6">
+                {list.map((m, i) => {
+                  const userBubble = "inline-block max-w-[85%] bg-stone-900/70 border border-zinc-800 rounded-2xl px-4 py-3";
+                  if (m.role === "assistant") {
+                    return (
+                      <div key={i} className="w-full flex justify-start">
+                        <div className="w-full mx-auto rounded-3xl bg-stone-950/90 border border-zinc-900 shadow-[0_10px_30px_rgba(0,0,0,0.45)] ring-1 ring-black/10 backdrop-blur px-6 md:px-8 py-6 md:py-8 max-w-[min(100%,1000px)]">
+                          <div className="animate-[fadeIn_300ms_ease-out] leading-7 md:leading-8">
+                            <MarkdownView md={m.content} />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  }
                   return (
                     <div key={i} className="w-full flex justify-start">
-                      <div className="w-full mx-auto rounded-3xl bg-stone-950/90 border border-zinc-900 shadow-[0_10px_30px_rgba(0,0,0,0.45)] ring-1 ring-black/10 backdrop-blur px-6 md:px-8 py-6 md:py-8 max-w-[min(100%,1000px)]">
-                        <div className="animate-[fadeIn_300ms_ease-out] leading-7 md:leading-8">
-                          <MarkdownView md={m.content} />
-                        </div>
+                      <div className={userBubble}>
+                        <div className="text-stone-200 whitespace-pre-wrap leading-relaxed">{m.content}</div>
                       </div>
                     </div>
                   );
-                }
-                return (
-                  <div key={i} className="w-full flex justify-start">
-                    <div className={userBubble}>
-                      <div className="text-stone-200 whitespace-pre-wrap leading-relaxed">{m.content}</div>
-                    </div>
+                })}
+                {(connecting || awaitingAnswer) && (
+                  <div className="w-full flex justify-start">
+                    <LoadingIndicator label={connecting ? t.chat.connecting : t.chat.thinking} />
                   </div>
-                );
-              })}
-              {(connecting || awaitingAnswer) && (
-                <div className="w-full flex justify-start">
-                  <LoadingIndicator label={connecting ? t.chat.connecting : t.chat.thinking} />
-                </div>
-              )}
-              <div ref={scrollRef} />
-            </div>
+                )}
+                <div ref={scrollRef} />
+              </div>
 
-            {latestAssistantContent && !awaitingAnswer && (
-              <ActionRow
-                disabled={busy}
-                onSummarize={() => sendFollowup("Summarize the previous answer into 5–7 concise bullet points with bolded keywords.")}
-                onLearnMore={() => sendFollowup("Go deeper into this topic with advanced details, real-world examples, and a short analogy.")}
-                onStartQuiz={() => {
-                  const t = topic || deriveTopicFromMarkdown(latestAssistantContent) || "General";
-                  navigate(`/quiz?topic=${encodeURIComponent(t)}`, { state: { topic: t } });
-                }}
-                onCreatePodcast={async () => {
-                  try {
-                    const topicContent = latestAssistantContent || topic || "Generated from chat";
-                    const response = await podcastStart({ topic: topicContent });
-                    navigate("/tools", { state: { podcastPid: response.pid, podcastTopic: topicContent } });
-                  } catch (error) {
-                    console.error("Failed to create podcast:", error);
-                  }
-                }}
-              />
-            )}
+              {latestAssistantContent && !awaitingAnswer && (
+                <ActionRow
+                  disabled={busy}
+                  onSummarize={() => sendFollowup("Summarize the previous answer into 5-7 concise bullet points with bolded keywords.")}
+                  onLearnMore={() => sendFollowup("Go deeper into this topic with advanced details, real-world examples, and a short analogy.")}
+                  onStartQuiz={() => {
+                    const t = topic || deriveTopicFromMarkdown(latestAssistantContent) || "General";
+                    navigate(`/quiz?topic=${encodeURIComponent(t)}`, { state: { topic: t } });
+                  }}
+                  onCreatePodcast={async () => {
+                    try {
+                      const topicContent = latestAssistantContent || topic || "Generated from chat";
+                      const response = await podcastStart({ topic: topicContent });
+                      navigate("/tools", { state: { podcastPid: response.pid, podcastTopic: topicContent } });
+                    } catch (error) {
+                      console.error("Failed to create podcast:", error);
+                    }
+                  }}
+                />
+              )}
+            </div>
           </div>
+
+          <FlashCards items={cards} onAdd={({ kind, title, content }) => addToBag(kind, title, content)} />
         </div>
 
-        <FlashCards items={cards} onAdd={({ kind, title, content }) => addToBag(kind, title, content)} />
+        <SelectionPopup
+          selected={selected}
+          popupRef={selPopupRef}
+          addNote={(text) => { addToBag("note", `${t.chat.addNote}: ${text.slice(0, 30)}${text.length > 30 ? "..." : ""}`, text); setSelected(null); }}
+          askDoubt={(text) => { const v = text.trim(); if (v) sendFollowup(v); setSelected(null); }}
+        />
+
+        <Composer disabled={busy} onSend={sendFollowup} />
+        <BagFab count={bag.length} onClick={() => setBagOpen(true)} />
+        <BagDrawer open={bagOpen} items={bag} onClose={() => setBagOpen(false)} onClear={clearBag} />
       </div>
 
-      <SelectionPopup
-        selected={selected}
-        popupRef={selPopupRef}
-        addNote={(text) => { addToBag("note", `${t.chat.addNote}: ${text.slice(0, 30)}${text.length > 30 ? "..." : ""}`, text); setSelected(null); }}
-        askDoubt={(text) => { const v = text.trim(); if (v) sendFollowup(v); setSelected(null); }}
-      />
-
-      <Composer disabled={busy} onSend={sendFollowup} />
-      <BagFab count={bag.length} onClick={() => setBagOpen(true)} />
-      <BagDrawer open={bagOpen} items={bag} onClose={() => setBagOpen(false)} onClear={clearBag} />
-    </div>
+    </>
   );
 }
-
