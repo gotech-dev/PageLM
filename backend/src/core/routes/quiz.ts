@@ -47,12 +47,16 @@ export function quizRoutes(app: any) {
         return res.status(400).send({ ok: false, error: "topic required" });
 
       const model = getDefaultModelName();
+      const quizId = crypto.randomUUID();
       let remainingCredits: number | undefined;
       // Charge credits before generation if authenticated
       try {
         const uid = extractUserId(req);
         if (uid) {
-          const charged = await chargeCreditsByText(uid, topic, 2.5, model);
+          const charged = await chargeCreditsByText(uid, topic, 2.5, model, {
+            taskType: "quiz_generate",
+            meta: { quizId, topicPreview: topic.slice(0, 200) },
+          });
           remainingCredits = charged.remaining;
           emitToAll(qs.get(quizId), { type: "credits", credits: charged.remaining });
         }
@@ -63,7 +67,6 @@ export function quizRoutes(app: any) {
         qlog("credit charge failed", err?.message || err);
       }
 
-      const quizId = crypto.randomUUID();
       qlog("start", quizId, "topic:", topic);
 
       res

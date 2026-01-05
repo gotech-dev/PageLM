@@ -10,7 +10,8 @@ import {
     DebateSession,
 } from "../../services/debate";
 import { extractUserId } from "../../utils/auth/user";
-import { chargeCreditsByText, getDefaultModelName } from "../../services/credits";
+import { calculateCredits, checkCredits, consumeCredits, estimateTokens, getDefaultModelName } from "../../services/credits";
+import crypto from "crypto";
 import { authMiddleware, AuthRequest } from "../../middleware/auth";
 
 const debateSockets = new Map<string, Set<any>>();
@@ -103,16 +104,6 @@ export function debateRoutes(app: any) {
                 console.log('[Debate] Creating missing user:', { userId, email, name });
                 await dbQuery('INSERT INTO users (id, email, name) VALUES (?, ?, ?)', [userId, email, name]);
             }
-            let remainingCredits: number | undefined;
-            try {
-                const charged = await chargeCreditsByText(userId, topic, 2, model);
-                remainingCredits = charged.remaining;
-            } catch (err: any) {
-                if (err?.message === "INSUFFICIENT_CREDITS") {
-                    return res.status(402).json({ ok: false, error: "INSUFFICIENT_CREDITS" });
-                }
-                console.warn("[debate] credit charge failed", err?.message || err);
-            }
             const session = await createDebateSession(userId, topic.trim(), position);
 
             res.json({
@@ -124,7 +115,7 @@ export function debateRoutes(app: any) {
                     position: session.position,
                     createdAt: session.createdAt,
                 },
-                credits: remainingCredits,
+                credits: undefined,
                 stream: `/ws/debate?debateId=${session.id}`,
             });
         } catch (error: any) {
@@ -141,6 +132,7 @@ export function debateRoutes(app: any) {
             const { debateId } = req.params;
             const { argument } = req.body;
             let creditsAfterCharge: number | undefined;
+            let estimatedCredits: number | undefined;
 
             if (!argument || !argument.trim()) {
                 return res.status(400).json({
@@ -152,14 +144,17 @@ export function debateRoutes(app: any) {
             try {
                 const uid = extractUserId(req);
                 if (uid) {
-                    const charged = await chargeCreditsByText(uid, argument, 2, model);
-                    creditsAfterCharge = charged.remaining;
+                    const check = await checkCredits(uid, { inputText: argument, outputRatio: 1.6, model });
+                    estimatedCredits = check.credits;
+                    if (!check.sufficient) {
+                        return res.status(402).json({ ok: false, error: "INSUFFICIENT_CREDITS" });
+                    }
                 }
             } catch (err: any) {
                 if (err?.message === "INSUFFICIENT_CREDITS") {
                     return res.status(402).json({ ok: false, error: "INSUFFICIENT_CREDITS" });
                 }
-                console.warn("[debate] credit charge failed", err?.message || err);
+                console.warn("[debate] credit check failed", err?.message || err);
             }
 
             const session = await getDebateSession(debateId);
@@ -173,7 +168,7 @@ export function debateRoutes(app: any) {
             res.status(202).json({
                 ok: true,
                 message: "Argument received, streaming response",
-                credits: creditsAfterCharge,
+                credits: estimatedCredits,
             });
 
             const sockets = debateSockets.get(debateId);
@@ -194,6 +189,8 @@ export function debateRoutes(app: any) {
 
             if (creditsAfterCharge !== undefined) {
                 emitToDebate({ type: "credits", credits: creditsAfterCharge });
+            } else if (estimatedCredits !== undefined) {
+                emitToDebate({ type: "credits", credits: estimatedCredits, pending: true });
             }
 
             emitToDebate({ type: "user_argument", content: argument.trim() });
@@ -219,6 +216,34 @@ export function debateRoutes(app: any) {
                 }
 
                 emitToDebate({ type: "ai_complete", content: fullResponse });
+
+                const uid = extractUserId(req);
+                if (uid) {
+                    try {
+                        const inputTokens = estimateTokens(argument, model);
+                        const outputTokens = estimateTokens(fullResponse, model);
+                        const actual = await calculateCredits(inputTokens, outputTokens, model);
+                        const remaining = await consumeCredits(uid, actual.credits, {
+                            aiModel: model,
+                            taskType: "debate_argument",
+                            inputTokens,
+                            outputTokens,
+                            inputHash: crypto.createHash("sha256").update(argument).digest("hex"),
+                            meta: { debateId, estimatedCredits },
+                        });
+                        creditsAfterCharge = remaining;
+                        emitToDebate({
+                            type: "credits",
+                            credits: remaining,
+                            spent: actual.credits,
+                            inputTokens,
+                            outputTokens,
+                        });
+                    } catch (err: any) {
+                        console.warn("[debate] credit consume failed", err?.message || err);
+                        emitToDebate({ type: "credits_error", error: err?.message || "credit_consume_failed" });
+                    }
+                }
             } catch (error: any) {
                 console.error("Error streaming debate response:", error);
                 emitToDebate({

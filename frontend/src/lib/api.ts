@@ -58,7 +58,7 @@ export type FlashCard = { q: string; a: string; tags?: string[] };
 export type Question = { id: number; question: string; options: string[]; correct: number; hint: string; explanation: string; imageHtml?: string; };
 export type QuizStartResponse = { ok: true; quizId: string; stream: string; credits?: number }
 export type QuizEvent = { type: "ready" | "phase" | "quiz" | "done" | "error" | "ping" | "credits"; quizId?: string; value?: string; quiz?: unknown; error?: string; t?: number; credits?: number }
-export type SmartNotesStart = { ok: true; noteId: string; stream: string; credits?: number }
+export type SmartNotesStart = { ok: true; noteId: string; stream: string; credits?: number; pendingCredits?: number; pending?: boolean }
 export type CompanionHistoryEntry = { role: "user" | "assistant"; content: string }
 export type CompanionAnswer = { topic: string; answer: string; flashcards: FlashCard[] }
 export type CompanionAskResponse = { ok: boolean; companion: CompanionAnswer }
@@ -89,10 +89,10 @@ export type SmartNotesEvent =
   | { type: "ready"; noteId: string }
   | { type: "phase"; value: string }
   | { type: "file"; file: string }
-  | { type: "credits"; credits: number }
   | { type: "done" }
   | { type: "error"; error: string }
   | { type: "ping"; t: number }
+  | { type: "credits"; credits: number; pending?: boolean; pendingCredits?: number; spent?: number; inputTokens?: number; outputTokens?: number }
 export type StudyMaterials = {
   summary: string;
   keyPoints: string[];
@@ -144,6 +144,18 @@ async function req<T = unknown>(
     const r = await fetch(url, { signal, ...rest });
     if (!r.ok) {
       const txt = await r.text().catch(() => "");
+      const bodyLower = txt.toLowerCase();
+
+      if (r.status === 402 || bodyLower.includes("insufficient_credits")) {
+        // Broadcast zero credits so UI can surface the out-of-credits notice even on failed requests
+        updateCachedCredits(0);
+        try {
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(new CustomEvent<number>(CREDITS_EVENT, { detail: 0 }));
+          }
+        } catch { /* ignore */ }
+      }
+
       throw new Error(`http ${r.status}: ${txt || r.statusText}`);
     }
     const ct = r.headers.get("content-type") || "";

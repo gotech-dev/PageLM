@@ -70,7 +70,10 @@ export function examRoutes(app: any) {
       try {
         const uid = extractUserId(req)
         if (uid) {
-          const charged = await chargeCreditsByText(uid, examId, 3, model)
+          const charged = await chargeCreditsByText(uid, examId, 3, model, {
+            taskType: "exam_generate",
+            meta: { runId, examId },
+          })
           remainingCredits = charged.remaining
           emitToAll(streams.get(runId), { type: "credits", credits: charged.remaining })
         }
