@@ -9,9 +9,11 @@ import { plannerRoutes } from "./routes/planner";
 import { debateRoutes } from "./routes/debate";
 import { companionRoutes } from "./routes/companion";
 import { authRoutes } from "./routes/auth";
+import { studyWithAISyncRoutes } from "./routes/study-with-ai-sync";
 
 export function registerRoutes(app: any) {
   authRoutes(app);
+  studyWithAISyncRoutes(app);
   chatRoutes(app);
   quizRoutes(app);
   examRoutes(app);
