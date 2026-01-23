@@ -1,0 +1,22 @@
+
+[config]
+model = "gemini/gemini-3-flash-preview"
+handle_pr_actions = ["opened", "reopened", "ready_for_review", "synchronize"]
+custom_model_max_tokens = 128000
+# Skip non-code files for faster review
+ignore_paths = ["node_modules/*", "dist/*", "storage/*", "public/*", "*.mp3", "*.wav", "*.pdf", "*.docx"]
+
+[pr_description]
+publish_labels = true
+add_original_user_description = true
+generate_ai_title = false
+
+[pr_reviewer]
+auto_review = true
+require_approval = false
+enable_security_review = true
+extra_instructions = "Focus on TypeScript and Node.js best practices, specifically LangChain and AI Agent logic. Review for security vulnerabilities, performance issues, and maintainability. Response in Vietnamese."
+
+[pr_code_suggestions]
+auto_improve = false
+num_code_suggestions = 5
