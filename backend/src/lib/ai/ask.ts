@@ -4,6 +4,7 @@ import crypto from "crypto"
 import llm from "../../utils/llm/llm"
 import { execDirect } from "../../agents/runtime"
 import { normalizeTopic } from "../../utils/text/normalize"
+import { config } from "../../config/env"
 
 export type AskCard = { q: string; a: string; tags?: string[] }
 export type AskPayload = { topic: string; answer: string; flashcards: AskCard[] }
@@ -402,15 +403,22 @@ export async function handleAsk(
 
   let ctx = "NO_CONTEXT"
   if (!isFast) {
-    const rag = await execDirect({
-      agent: "researcher",
-      plan: { steps: [{ tool: "rag.search", input: { q: safeQ, ns: nsFinal, k }, timeoutMs: 8000, retries: 1 }] },
-      ctx: { ns: nsFinal }
-    })
-    // execDirect returns { trace, result, threadId } - result contains the actual documents
-    const ctxDocs = Array.isArray(rag?.result) ? (rag.result as Array<{ text?: string }>) : []
-    console.log(`[handleAsk] RAG search ns="${nsFinal}", found ${ctxDocs.length} docs`)
-    ctx = ctxDocs.map(d => d?.text || "").filter(t => t.trim()).join("\n\n") || "NO_CONTEXT"
+    const storagePath = path.join(process.cwd(), "storage", "json", `${nsFinal}.json`);
+    const hasDocs = config.db_mode === "json" ? fs.existsSync(storagePath) : true;
+
+    if (hasDocs) {
+      const rag = await execDirect({
+        agent: "researcher",
+        plan: { steps: [{ tool: "rag.search", input: { q: safeQ, ns: nsFinal, k }, timeoutMs: 8000, retries: 1 }] },
+        ctx: { ns: nsFinal }
+      })
+      const ctxDocs = Array.isArray(rag?.result) ? (rag.result as Array<{ text?: string }>) : []
+      console.log(`[handleAsk] RAG search ns="${nsFinal}", found ${ctxDocs.length} docs`)
+      ctx = ctxDocs.map(d => d?.text || "").filter(t => t.trim()).join("\n\n") || "NO_CONTEXT"
+    } else {
+      console.log(`[handleAsk] Skipping RAG search: namespace "${nsFinal}" has no documents (JSON mode)`)
+    }
+
     if (ctx !== "NO_CONTEXT") {
       console.log(`[handleAsk] Context preview: ${ctx.slice(0, 200)}...`)
     }

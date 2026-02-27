@@ -26,7 +26,7 @@ export const config = {
   openrouter: process.env.OPENROUTER_API_KEY || '',
   openrouter_model: process.env.openrouter_model || '',
   gemini: process.env.gemini || process.env.GOOGLE_API_KEY || '',
-  gemini_model: process.env.gemini_model || 'gemini-1.5-flash',
+  gemini_model: process.env.gemini_model || 'gemini-2.0-flash',
   gemini_embed_model: process.env.gemini_embed_model || 'text-embedding-004',
   openai: process.env.OPENAI_API_KEY || '',
   openai_embed: process.env.OPENAI_EMBED_API_KEY || '',

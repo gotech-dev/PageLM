@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { env } from "../config/env";
 import { chatJSON, getChatDetail, type FlashCard, createFlashcard, listFlashcards, deleteFlashcard, getChats, type ChatMessage, type SavedFlashcard, podcastStart } from "../lib/api";
@@ -179,8 +179,60 @@ export default function Chat() {
         }
       } catch { }
     };
+
+    ws.onclose = () => {
+      // Recovery logic if WS closes while waiting for answer
+      if (wsRef.current === ws) {
+        setAwaitingAnswer(prev => {
+          if (prev) {
+            getChatDetail(chatId).then(res => {
+              if (res?.ok && res.messages?.some(m => m.role === "assistant")) {
+                const normalized = res.messages.map(m =>
+                  m.role === "assistant" ? { ...m, content: normalizePayload((m as any).content).md } : m
+                );
+                setMessages(normalized);
+                setAwaitingAnswer(false);
+              }
+            }).catch(() => { });
+          }
+          return prev;
+        });
+      }
+    };
+
+    ws.onerror = () => {
+      setConnecting(false);
+      console.warn("[WS] Connection error for chatId:", chatId);
+    };
+
     return () => { try { ws.close(); } catch { } wsRef.current = null; };
   }, [chatId]);
+
+  const pollForAnswer = useCallback(async (cid: string) => {
+    const MAX_WAIT = 120000;
+    const POLL_INTERVAL = 2000;
+    const start = Date.now();
+
+    while (Date.now() - start < MAX_WAIT) {
+      await new Promise(r => setTimeout(r, POLL_INTERVAL));
+      // Stop if WS already got the answer
+      if (!awaitingAnswer) return;
+
+      try {
+        const res = await getChatDetail(cid);
+        if (res?.ok && res.messages?.some(m => m.role === "assistant")) {
+          const normalized = res.messages.map(m =>
+            m.role === "assistant" ? { ...m, content: normalizePayload((m as any).content).md } : m
+          );
+          setMessages(normalized);
+          setAwaitingAnswer(false);
+          console.log("[pollForAnswer] WS missed answer, recovered from DB:", cid);
+          return;
+        }
+      } catch { }
+    }
+    setAwaitingAnswer(false);
+  }, [awaitingAnswer]);
 
   useEffect(() => {
     const onSel = () => {
@@ -266,10 +318,19 @@ export default function Chat() {
     setBusy(true);
     try {
       const r = await chatJSON({ q: text, chatId: chatId || undefined, fastMode });
-      if (r?.chatId && r.chatId !== chatId) setChatId(r.chatId);
+      const newChatId = r?.chatId;
+      if (newChatId && newChatId !== chatId) {
+        setChatId(newChatId);
+      }
+      if (newChatId) {
+        pollForAnswer(newChatId);
+      }
     } finally {
       setBusy(false);
       setTimeout(() => scrollRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }), 0);
+      // Safety reset after 3 min
+      const t = setTimeout(() => setAwaitingAnswer(false), 180000);
+      return () => clearTimeout(t);
     }
   };
 
