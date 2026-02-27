@@ -62,7 +62,7 @@ export default function Chat() {
 
   const initialChatId = search.get("chatId") || state.chatId || "";
   const initialQuestion = search.get("q") || state.q || "";
-  const initialFastMode = search.get("fastMode") === "true";
+  const initialFastMode = search.get("fastMode") !== "false";
 
   const [chatId, setChatId] = useState(initialChatId);
   const [fastMode, setFastMode] = useState(initialFastMode);
@@ -113,7 +113,7 @@ export default function Chat() {
 
   useEffect(() => {
     const cid = search.get("chatId") || state.chatId || "";
-    const fm = search.get("fastMode") === "true";
+    const fm = search.get("fastMode") !== "false";
     setChatId(cid);
     setFastMode(fm);
     if (state.answer) {

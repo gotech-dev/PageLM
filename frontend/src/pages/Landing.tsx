@@ -11,7 +11,7 @@ export default function Landing() {
   const [prompt, setPrompt] = useState("");
   const [mode, setMode] = useState<"Chat" | "Quiz">("Chat");
   const [responseLength, setResponseLength] = useState<"Short" | "Medium" | "Long">("Medium");
-  const [fastMode, setFastMode] = useState(false);
+  const [fastMode, setFastMode] = useState(true);
   const [showFast, setShowFast] = useState(false);
   const [showMode, setShowMode] = useState(false);
   const [showLength, setShowLength] = useState(false);
