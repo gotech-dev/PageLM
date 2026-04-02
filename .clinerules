@@ -1,0 +1,10 @@
+# BẮT BUỘC (MANDATORY RULES FOR AI AGENT)
+
+CRITICAL MANDATORY INSTRUCTIONS FOR EVERY TASK:
+
+1. You MUST ALWAYS use the `view_file` tool to read the fully updated instructions in `.agent/skills/project-memory/SKILL.md` and `.agent/skills/safe-coding-workflow/SKILL.md` before writing any code, making any modifications, or proceeding with bug fixes or new features.
+2. You MUST ALWAYS use the `view_file` tool to read the fully updated instructions in `.agent/skills/devsecops-security-review/SKILL.md` before finalizing and delivering the code.
+3. The rules and procedures defined in these `SKILL.md` files are absolute, non-negotiable standard operating procedures (SOPs) and must be followed exactly as described, regardless of how simple the task seems.
+4. NEVER skip reading these files because of assumptions that you already know what to do or to save time. The user strictly requires this workflow.
+
+If you fail to follow these rules, it is considered a CRITICAL FAILURE.

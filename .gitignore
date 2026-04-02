@@ -21,3 +21,4 @@ database.sqlite
 # TypeScript build info
 tsconfig.tsbuildinfo
 vite.config.tsbuildinfo
+.claude/skills/
