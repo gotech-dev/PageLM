@@ -167,51 +167,103 @@ export function authRoutes(app: any) {
     })
 
     // ========== SSO from BGTT ==========
-    // Endpoint MỚI - nhận SSO token từ BGTT, tạo/login user, redirect với JWT
-    app.get('/auth/sso', async (req: any, res: any) => {
+    // Endpoint legacy - giữ lại để tránh breaking change nội bộ
+    app.get('/auth/sso-legacy', async (req: any, res: any) => {
         try {
-            const { token, redirect } = req.query
+            const { token, redirect, platform_code = 'bgtt' } = req.query
 
             if (!token) {
                 return res.status(400).json({ error: 'SSO token required' })
             }
 
-            // Verify SSO token
-            const ssoSecret = process.env.SSO_SECRET || process.env.JWT_SECRET
-            if (!ssoSecret) {
-                console.error('[SSO] SSO_SECRET not configured')
-                return res.status(500).json({ error: 'SSO not configured' })
+            // Direct AES decryption for study_with_ai platform
+            let payload: any;
+            
+            if (platform_code === 'study_with_ai') {
+                const ssoSecret = process.env.STUDY_WITH_AI_SECRET_KEY || process.env.JWT_SECRET
+                if (!ssoSecret) {
+                    console.error('[SSO] SSO_SECRET not configured')
+                    return res.status(500).json({ error: 'SSO not configured' })
+                }
+
+                // AES decryption for study_with_ai platform
+                const crypto = require('crypto')
+                
+                try {
+                    // Decode base64 token
+                    const encryptedData = Buffer.from(token, 'base64')
+                    
+                    if (encryptedData.length < 16) {
+                        return res.status(400).json({ error: 'Invalid token format: too short for AES' })
+                    }
+                    
+                    // Extract IV and ciphertext
+                    const iv = encryptedData.slice(0, 16)
+                    const ciphertext = encryptedData.slice(16)
+                    
+                    console.log('[SSO] Token lengths - IV:', iv.length, 'Ciphertext:', ciphertext.length)
+                    
+                    // Try AES-256-CBC with full SHA256 hash first
+                    let decrypted = null
+                    const methods = [
+                        {
+                            name: 'AES-256-CBC',
+                            key: Buffer.from(crypto.createHash('sha256').update(ssoSecret).digest('hex'), 'hex'),
+                            algo: 'aes-256-cbc'
+                        },
+                        {
+                            name: 'AES-128-CBC', 
+                            key: Buffer.from(crypto.createHash('sha256').update(ssoSecret).digest('hex').substring(0, 32), 'hex'),
+                            algo: 'aes-128-cbc'
+                        },
+                        {
+                            name: 'AES-256-CBC-Slice32',
+                            key: crypto.createHash('sha256').update(ssoSecret).digest().slice(0, 32),
+                            algo: 'aes-256-cbc'
+                        }
+                    ]
+                    
+                    for (const method of methods) {
+                        try {
+                            console.log(`[SSO] Trying ${method.name}...`)
+                            const decipher = crypto.createDecipheriv(method.algo, method.key, iv)
+                            decipher.setAutoPadding(true)
+                            
+                            let decryptedData = decipher.update(ciphertext)
+                            decryptedData = Buffer.concat([decryptedData, decipher.final()])
+                            
+                            const payloadJson = decryptedData.toString('utf8')
+                            console.log(`[SSO] ${method.name} SUCCESS!`)
+                            console.log('[SSO] Decrypted JSON:', payloadJson)
+                            
+                            payload = JSON.parse(payloadJson)
+                            break
+                        } catch (error: any) {
+                            console.log(`[SSO] ${method.name} failed:`, error?.message || error)
+                            continue
+                        }
+                    }
+                    
+                    if (!payload) {
+                        return res.status(400).json({ error: 'Failed to decrypt token with any method' })
+                    }
+                    
+                } catch (error) {
+                    console.error('[SSO] AES decryption error:', error)
+                    return res.status(400).json({ error: 'Token decryption failed' })
+                }
+
+                // Check expiration
+                if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
+                    return res.status(401).json({ error: 'Token expired' })
+                }
+                
+                console.log(`[SSO] Token verified successfully for: ${payload.email} (platform: ${platform_code})`);
+            } else {
+                return res.status(400).json({ error: 'Unsupported platform' });
             }
 
-            // Parse token: base64payload.signature
-            const parts = token.split('.')
-            if (parts.length !== 2) {
-                return res.status(400).json({ error: 'Invalid token format' })
-            }
-
-            const [encodedPayload, signature] = parts
-
-            // Verify signature
-            const crypto = require('crypto')
-            const expectedSignature = crypto.createHmac('sha256', ssoSecret)
-                .update(encodedPayload)
-                .digest('hex')
-
-            if (signature !== expectedSignature) {
-                console.error('[SSO] Invalid signature')
-                return res.status(401).json({ error: 'Invalid token signature' })
-            }
-
-            // Decode payload
-            const payloadJson = Buffer.from(encodedPayload, 'base64').toString('utf8')
-            const payload = JSON.parse(payloadJson)
-
-            // Check expiration
-            if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
-                return res.status(401).json({ error: 'Token expired' })
-            }
-
-            const { email, name, user_id: bgttUserId } = payload
+            const { email, name, user_id: bgttUserId, credits } = payload
 
             if (!email) {
                 return res.status(400).json({ error: 'Email required in token' })
@@ -224,26 +276,61 @@ export function authRoutes(app: any) {
                 id: string
                 email: string
                 name: string
-            }>('SELECT id, email, name FROM users WHERE email = ?', [email])
+                credits?: number
+            }>('SELECT id, email, name, credits FROM users WHERE email = ?', [email])
 
             let userId: string
             let userName: string
+            let userCredits: number = credits || 0
 
             if (users.length === 0) {
-                // Create new user
+                // Create new user with credits and optional default password
                 userId = randomUUID()
                 userName = name || email.split('@')[0]
 
+                // Generate a default password for SSO users (optional - allows local login)
+                const defaultPassword = `sso_${randomUUID().substring(0, 8)}`
+                const hashedPassword = await bcrypt.hash(defaultPassword, 10)
+
                 await query(
-                    'INSERT INTO users (id, email, name) VALUES (?, ?, ?)',
-                    [userId, email, userName]
+                    'INSERT INTO users (id, email, name, password, credits, source_platform) VALUES (?, ?, ?, ?, ?, ?)',
+                    [userId, email, userName, hashedPassword, userCredits, platform_code]
                 )
 
-                console.log('[SSO] Created new user:', userId)
+                console.log('[SSO] Created new user:', userId, 'with credits:', userCredits)
             } else {
                 userId = users[0].id
                 userName = users[0].name
-                console.log('[SSO] Found existing user:', userId)
+                userCredits = users[0].credits || 0
+                
+                // Check if user has a password, if not set one
+                const userWithPassword = await query<{
+                    password?: string
+                }>('SELECT password FROM users WHERE id = ?', [userId])
+                
+                if (!userWithPassword[0].password) {
+                    // Generate a default password for SSO users
+                    const defaultPassword = `sso_${randomUUID().substring(0, 8)}`
+                    const hashedPassword = await bcrypt.hash(defaultPassword, 10)
+                    
+                    await query(
+                        'UPDATE users SET password = ?, source_platform = ? WHERE id = ?',
+                        [hashedPassword, platform_code, userId]
+                    )
+                    console.log('[SSO] Set default password for existing user:', userId)
+                }
+                
+                // Update credits if different from payload
+                if (credits !== undefined && credits !== userCredits) {
+                    await query(
+                        'UPDATE users SET credits = ?, source_platform = ? WHERE id = ?',
+                        [credits, platform_code, userId]
+                    )
+                    userCredits = credits
+                    console.log('[SSO] Updated user credits:', userId, 'new credits:', userCredits)
+                } else {
+                    console.log('[SSO] Found existing user:', userId)
+                }
             }
 
             // Generate JWT token
@@ -254,9 +341,10 @@ export function authRoutes(app: any) {
                     id: userId,
                     email,
                     name: userName,
+                    credits: userCredits,
                     iss: JWT_ISSUER,
                     sso: true,
-                    source: 'bgtt'
+                    source: platform_code
                 },
                 JWT_SECRET,
                 { expiresIn: '7d' }
@@ -264,7 +352,8 @@ export function authRoutes(app: any) {
 
             // Redirect to frontend with token
             const frontendUrl = process.env.FRONTEND_URL || process.env.VITE_FRONTEND_URL || 'http://localhost:5174'
-            const redirectPath = redirect || '/'
+            // Use the redirect parameter from the request, default to '/app' for SSO users
+            const redirectPath = redirect === '/' ? '/' : (redirect || '/app')
 
             // Build redirect URL with token in query
             const redirectUrl = `${frontendUrl}/sso-callback?token=${encodeURIComponent(jwtToken)}&redirect=${encodeURIComponent(redirectPath)}`

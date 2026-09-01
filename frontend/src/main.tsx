@@ -1,5 +1,5 @@
 import ReactDOM from "react-dom/client";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import App from "./App";
 import Landing from "./pages/Landing";
 import Chat from "./pages/Chat";
@@ -21,6 +21,9 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/sso-callback" element={<SsoCallback />} />
+        <Route path="/dashboard" element={<Navigate to="/" replace />} />
+        <Route path="/profile" element={<Navigate to="/" replace />} />
+        <Route path="/credit-topup" element={<Navigate to="/" replace />} />
         <Route path="/" element={<App />}>
           <Route path="*" element={<NotFound />} />
           <Route index element={<Landing />} />
